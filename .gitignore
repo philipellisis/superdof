@@ -1,0 +1,6 @@
+dist/
+*.exe
+bridge/B2SBridge/bin/
+bridge/B2SBridge/obj/
+bridge/B2SBridge/out/
+*.log

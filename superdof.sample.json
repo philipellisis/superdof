@@ -1,0 +1,85 @@
+// SuperDOF configuration. Comments (// and /* */) are allowed.
+// Create one from your existing files with:  superdof convert -ini DOFLinx.INI -o superdof.json
+{
+  // PinOne connection: "auto" (HID first, then legacy serial), "hid" or "COM4"
+  "pinone": "auto",
+
+  "dof": {
+    // folder with directoutputconfig11.ini (PinOne), directoutputconfig30.ini (strips),
+    // directoutputconfig4x.ini (FTDI), DirectOutputShapes.xml/.png and tablemappings.xml
+    "iniFilesPath": "C:\\DirectOutput\\Config",
+    "minEffectDurationMs": 60,
+    "minRgbEffectDurationMs": 120
+  },
+
+  // Hardware and toys (replaces cabinet.xml). A PinOne is added automatically when none is listed.
+  "cabinet": {
+    "controllers": [
+      {
+        "type": "wemosd1",            // wemosd1 | teensy | pinone | ftdi
+        "name": "LED Strips 0",
+        "comPort": "COM4",
+        "baudRate": 2000000,
+        "ledsPerStrip": [144, 144, 256, 256, 256, 256, 256, 256],
+        "timeoutMs": 300,
+        "openWaitMs": 300,
+        "handshakeStartWaitMs": 100,
+        "handshakeEndWaitMs": 100,
+        "sendPerLedstripLength": true,
+        "useCompression": true,
+        "testOnConnect": false
+      }
+      // { "type": "ftdi", "serial": "A1B2C3D4" }          // FT245R relay board, LedWiz number 40 + index
+      // { "type": "pinone", "number": 1, "port": "hid" }   // explicit PinOne, LedWiz number 10 + number
+    ],
+    "toys": [
+      { "type": "ledstrip", "name": "Right Side", "width": 1, "height": 144,
+        "arrangement": "LeftRightBottomUp", "colorOrder": "RGB", "firstLed": 1,
+        "curve": "SwissLizardsLedCurve", "controller": "LED Strips 0" },
+      { "type": "ledstrip", "name": "Left Side", "width": 1, "height": 144,
+        "arrangement": "RightLeftBottomUp", "colorOrder": "RGB", "firstLed": 145,
+        "curve": "SwissLizardsLedCurve", "controller": "LED Strips 0" },
+      { "type": "ledstrip", "name": "Back Panel", "width": 96, "height": 16,
+        "arrangement": "TopDownAlternateRightLeft", "colorOrder": "RGB", "firstLed": 289,
+        "curve": "SwissLizardsLedCurve", "controller": "LED Strips 0" },
+
+      // LedWizEquivalent 30 is what directoutputconfig30.ini columns address
+      { "type": "ledwizequivalent", "name": "LedWizEquivalent 30", "number": 30,
+        "outputs": [
+          { "output": "Right Side", "number": 1 },
+          { "output": "Left Side",  "number": 4 },
+          { "output": "Back Panel", "number": 7 }
+        ] }
+    ]
+  },
+
+  // What used to be DOFLinx.INI. Ports use the DOFLinx DOOO form: device 1 = the PinOne.
+  "doflinx": {
+    "processes": ["PinballFX-Win64-Shipping", "Pinball FX3", "Pinball FX Classic"],
+    "processesLinx": ["PinballM-Win64-Shipping", "IMPinball"],
+    "paths": { "fx": "C:\\DOFLinx\\FX", "fx2": "C:\\DOFLinx\\FX2", "fx3": "C:\\DOFLinx\\FX3", "linx": "C:\\DOFLinx\\Linx" },
+    "colourFile": "C:\\DOFLinx\\config\\Colours.ini",
+    "pinOneDevice": 1,
+    // "forceTable": "BackToTheFuture",
+
+    // game id reported by the trigger DLL (see the log) -> table file name
+    "tables": { },
+
+    "devices": {
+      "LF": { "port": 1017, "defaultMs": 50,  "maxMs": 5000, "intensity": 255 },
+      "RF": { "port": 1025, "defaultMs": 50,  "maxMs": 5000, "intensity": 255 },
+      "LS": { "port": 1018, "defaultMs": 50,  "maxMs": 500,  "intensity": 255 },
+      "RS": { "port": 1026, "defaultMs": 50,  "maxMs": 500,  "intensity": 255 },
+      "SH": { "port": 1015, "defaultMs": 1000, "maxMs": 5000, "intensity": 255 },
+      "SR": { "port": 1001, "mode": "ON" },
+      "BK": { "port": 1017, "mode": "FLASH", "flashMs": 250, "intensity": 255 }
+    },
+    "flashers": { "FLOL": [1018], "FLIL": [1021], "FLCN": [1024], "FLIR": [1027], "FLOR": [1030] },
+    "buttons": { "BUT_ST": { "port": 1003, "colour": "Cyan", "key": 31 } },
+    "rgb": [],
+    "fixedOutputs": [],
+    "colourOrder": { },
+    // any other DOFLinx.INI key can be passed through here
+    "ini": { }
+  }
+}

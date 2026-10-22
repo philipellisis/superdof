@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SuperDOF Tester</title>
+<style>
+:root{--bg:#f4f5f7;--panel:#fff;--ink:#1d2330;--mute:#677086;--line:#d9dde5;--acc:#2563eb;--on:#f59e0b;--bad:#dc2626;--ok:#16a34a;--cell:#eef0f4}
+@media (prefers-color-scheme:dark){:root{--bg:#12151c;--panel:#1b2030;--ink:#e6e9f0;--mute:#8d96ab;--line:#2c344a;--acc:#6ea0ff;--on:#fbbf24;--bad:#f87171;--ok:#4ade80;--cell:#252c40}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,Segoe UI,sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--line);padding:8px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+header h1{font-size:16px;margin:0}
+.badge{padding:2px 8px;border-radius:99px;font-size:12px;font-weight:600;border:1px solid var(--line)}
+.badge.live{background:var(--bad);color:#fff;border-color:var(--bad)}.badge.sim{background:var(--ok);color:#000;border-color:var(--ok)}
+#active{flex:1;min-width:200px;color:var(--mute);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+nav{display:flex;gap:2px;padding:0 16px;background:var(--panel);border-bottom:1px solid var(--line);overflow-x:auto}
+nav button{border:0;background:none;color:var(--mute);padding:10px 14px;cursor:pointer;font:inherit;border-bottom:2px solid transparent}
+nav button.sel{color:var(--ink);border-color:var(--acc)}
+main{padding:16px;max-width:1200px;margin:0 auto}
+section{display:none}section.sel{display:block}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-bottom:14px}
+.card h2{font-size:14px;margin:0 0 8px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0}
+label{color:var(--mute);font-size:12px}
+input[type=text],input[type=number],select{background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:inherit}
+input.wide{width:min(560px,100%)}
+button.b{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:6px 12px;cursor:pointer;font:inherit}
+button.b.g{background:var(--cell);color:var(--ink);border:1px solid var(--line)}
+button.b.red{background:var(--bad)}
+button.b:disabled{opacity:.5;cursor:default}
+.chip{display:inline-block;border:1px solid var(--line);border-radius:99px;padding:1px 9px;margin:2px;cursor:pointer;background:var(--cell);font-size:12px}
+.chip:hover{border-color:var(--acc)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:6px}
+.cell{position:relative;background:var(--cell);border:1px solid var(--line);border-radius:6px;height:52px;cursor:pointer;overflow:hidden;user-select:none}
+.cell .n{position:absolute;top:3px;left:6px;font-size:12px;font-weight:600}
+.cell .v{position:absolute;top:3px;right:6px;font-size:11px;color:var(--mute)}
+.cell .bar{position:absolute;left:0;right:0;bottom:0;background:var(--on);height:0}
+.cell.forced{outline:2px solid var(--acc)}
+table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:4px 8px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:top}
+th{color:var(--mute);font-weight:500;font-size:12px}
+.err{color:var(--bad)}.ok{color:var(--ok)}.mute{color:var(--mute)}
+.warn{background:#fef3c7;color:#78350f;border-radius:6px;padding:6px 10px;margin:6px 0;font-size:13px}
+@media (prefers-color-scheme:dark){.warn{background:#3b2f0c;color:#fcd34d}}
+canvas{display:block;background:#000;border-radius:4px;margin:4px 0;max-width:100%}
+#log{font:12px/1.5 ui-monospace,Consolas,monospace;white-space:pre-wrap;max-height:70vh;overflow:auto}
+#log .WARN{color:var(--bad)}
+.mono{font-family:ui-monospace,Consolas,monospace}
+.scroll{max-height:420px;overflow:auto}
+details summary{cursor:pointer;color:var(--mute)}
+</style>
+</head>
+<body>
+<header>
+  <h1>SuperDOF Tester</h1>
+  <span id="mode" class="badge">not loaded</span>
+  <span id="active"></span>
+  <span id="game" class="mute"></span>
+  <button class="b red" id="alloff" title="Release test outputs, toy tests, DOFLinx outputs, the game and the ROM">ALL OFF</button>
+</header>
+<nav id="tabs"></nav>
+<main>
+
+<section id="t-setup">
+  <div class="card">
+    <h2>Configuration</h2>
+    <p class="mute" style="margin:0 0 6px">No GlobalConfig / B2S server file is needed. Give it a <b>superdof.json</b>, or a <b>DOFLinx.INI</b> (plus optional DOF <b>cabinet.xml</b>), or just the folder with the <b>directoutputconfig*.ini</b> files and tick auto configure.</p>
+    <div id="found" class="row"></div>
+    <div class="row"><label style="width:150px">superdof.json</label><input type="text" id="f-config" class="wide" placeholder="optional"></div>
+    <div class="row"><label style="width:150px">DOFLinx.INI</label><input type="text" id="f-ini" class="wide" placeholder="optional (used when no json)"></div>
+    <div class="row"><label style="width:150px">DOF ini folder</label><input type="text" id="f-dir" class="wide" placeholder="folder with directoutputconfig*.ini (blank = from config)"></div>
+    <div class="row"><label style="width:150px">cabinet.xml</label><input type="text" id="f-cab" class="wide" placeholder="optional">
+      <label><input type="checkbox" id="f-auto"> auto configure (ignore cabinet.xml)</label></div>
+    <div class="row"><label style="width:150px">PinOne connection</label><input type="text" id="f-port" value="auto" style="width:120px">
+      <label><input type="checkbox" id="f-dry"> simulation only (never touch hardware)</label></div>
+    <div class="row"><button class="b" id="load">Load</button><span id="loadmsg"></span></div>
+  </div>
+  <div id="summary"></div>
+</section>
+
+<section id="t-outputs">
+  <div class="warn" id="livewarn" style="display:none">LIVE mode: clicking an output energises the real hardware. Do not hold solenoid / contactor outputs on. "Walk" pulses each output briefly.</div>
+  <div id="outputs"></div>
+</section>
+
+<section id="t-toys"><div id="strips"></div><div id="toys"></div></section>
+
+<section id="t-rom">
+  <div class="card">
+    <h2>DOF ROM</h2>
+    <div class="row"><input type="text" id="rom-q" class="wide" placeholder="search ROM names (e.g. afm_113b, fx3_, doflinx)"><span id="rom-n" class="mute"></span></div>
+    <div id="rom-list" class="scroll"></div>
+    <div class="row"><b>Active:</b> <span id="rom-cur" class="mono">none</span> <span id="rom-msg"></span>
+      <button class="b g" id="rom-clear">Unload</button></div>
+  </div>
+  <div class="card">
+    <h2>Fire an element</h2>
+    <div class="row">
+      <input type="text" id="el-desc" placeholder="E101, L12, S5, $Name" style="width:150px">
+      <button class="b" data-el="pulse" title="DOFLinx FF_DOF semantics: on, then off after the effect duration">Pulse</button>
+      <button class="b g" data-el="on">On</button><button class="b g" data-el="off">Off</button>
+      <input type="number" id="el-ms" value="300" style="width:80px"><button class="b g" data-el="ms">On for ms</button>
+      <input type="range" id="el-val" min="0" max="255" value="128"><button class="b g" data-el="value">Set value</button>
+    </div>
+    <p class="mute" style="margin:2px 0">Elements known to the loaded ROM (those with ini effects). Filter: <input type="text" id="el-q" style="width:160px"></p>
+    <div class="scroll"><table><thead><tr><th>Element</th><th>Value</th><th>Effects</th><th></th></tr></thead><tbody id="el-body"></tbody></table></div>
+  </div>
+</section>
+
+<section id="t-linx">
+  <div class="card">
+    <h2>Simulate a game</h2>
+    <div class="row">
+      <select id="g-kind"></select><select id="g-table" style="min-width:260px"></select>
+      <button class="b" id="g-start">Start</button><button class="b g" id="g-stop">Stop</button><span id="g-msg"></span>
+    </div>
+    <p class="mute" style="margin:2px 0">Loads All_Pre + table file + All_Post exactly like a detected game: startup actions and FF_ROM run. Then fire its events:</p>
+    <div class="row"><input type="text" id="ev-q" placeholder="filter events" style="width:200px"></div>
+    <div id="events"></div>
+  </div>
+  <div class="card">
+    <h2>Console</h2>
+    <div class="row">
+      <select id="c-mode"><option value="action">Action (FF_...)</option><option value="trigger">Game trigger (E,/S,/G,)</option><option value="command">Real time command</option></select>
+      <input type="text" id="c-text" class="wide" placeholder="FF_DOF E101,200   |   FF_DEV LF,500">
+      <button class="b" id="c-run">Run</button>
+    </div>
+    <p class="mute" id="c-hint" style="margin:2px 0"></p>
+  </div>
+  <div class="card">
+    <h2>DOFLinx outputs (LINK_xx)</h2>
+    <p class="mute" style="margin:0 0 6px">Addresses are DOOO: device + output. Only the PinOne device is reachable; rows in red would be ignored.</p>
+    <table><thead><tr><th>Kind</th><th>Code</th><th>Address</th><th>Status</th><th></th></tr></thead><tbody id="links"></tbody></table>
+  </div>
+</section>
+
+<section id="t-log"><div class="card"><div class="row"><label><input type="checkbox" id="log-warn"> warnings only</label><button class="b g" id="log-clear">Clear</button></div><div id="log"></div></div></section>
+
+</main>
+<script>
+"use strict";
+const $=s=>document.querySelector(s);
+const el=(t,a={},...k)=>{const e=document.createElement(t);for(const[n,v]of Object.entries(a)){if(n==='class')e.className=v;else if(n.startsWith('on'))e.addEventListener(n.slice(2),v);else if(v!==false&&v!=null)e.setAttribute(n,v===true?'':v)}for(const c of k.flat())e.append(c instanceof Node?c:document.createTextNode(c??''));return e};
+async function api(path,body){
+  const o=body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)};
+  const r=await fetch(path,o);const j=await r.json().catch(()=>({}));
+  if(!r.ok||j.error)throw new Error(j.error||r.statusText);return j;
+}
+const save=(k,v)=>{try{localStorage.setItem('sd.'+k,v)}catch(e){}};
+const load=k=>{try{return localStorage.getItem('sd.'+k)||''}catch(e){return ''}};
+
+// ---- tabs
+const TABS=[['setup','Setup'],['outputs','Outputs'],['toys','Toys & LED strips'],['rom','ROM / elements'],['linx','DOFLinx'],['log','Log']];
+function showTab(id){for(const[i]of TABS){$('#t-'+i).classList.toggle('sel',i===id);$('#tab-'+i).classList.toggle('sel',i===id)}save('tab',id)}
+for(const[i,n]of TABS)$('#tabs').append(el('button',{id:'tab-'+i,onclick:()=>showTab(i)},n));
+
+let info={loaded:false},live={},forced=new Set(),logAll=[],logSeq=0;
+
+// ---- setup
+const F={config:'#f-config',ini:'#f-ini',iniDir:'#f-dir',cabinet:'#f-cab',pinone:'#f-port'};
+for(const[k,s]of Object.entries(F))$(s).value=load(k)||$(s).value;
+$('#f-auto').checked=load('auto')==='1';$('#f-dry').checked=load('dry')==='1';
+async function showFound(){
+  const f=(await api('/api/detect')).found,box=$('#found');box.replaceChildren(el('label',{},'Found:'));
+  const add=(label,list,target)=>list.forEach(p=>box.append(el('span',{class:'chip',title:p,onclick:()=>{$(target).value=p}},label+': '+p)));
+  add('json',f.superdofJson,'#f-config');add('DOFLinx.INI',f.doflinxIni,'#f-ini');add('cabinet',f.cabinetXml,'#f-cab');add('ini folder',f.iniDirs,'#f-dir');
+  if(box.children.length===1)box.append(el('span',{class:'mute'},' nothing in the usual places; type the paths'));
+}
+$('#load').onclick=async()=>{
+  const req={config:$('#f-config').value.trim(),ini:$('#f-ini').value.trim(),iniDir:$('#f-dir').value.trim(),cabinet:$('#f-cab').value.trim(),
+    autoCabinet:$('#f-auto').checked,pinone:$('#f-port').value.trim()||'auto',dry:$('#f-dry').checked};
+  for(const[k,s]of Object.entries(F))save(k,$(s).value);save('auto',req.autoCabinet?'1':'0');save('dry',req.dry?'1':'0');
+  if(!req.dry&&!confirm('Load in LIVE mode? The PinOne and other controllers will be opened and driven.'))return;
+  $('#loadmsg').textContent='loading…';$('#loadmsg').className='mute';
+  try{await api('/api/load',req);$('#loadmsg').textContent='loaded';$('#loadmsg').className='ok';await refreshInfo();searchRoms();showTab('outputs')}
+  catch(e){$('#loadmsg').textContent=e.message;$('#loadmsg').className='err'}
+};
+
+async function refreshInfo(){
+  info=await api('/api/info');render();
+}
+function render(){
+  const m=$('#mode');
+  if(!info.loaded){m.textContent='not loaded';m.className='badge';return}
+  m.textContent=info.dry?'SIMULATION':'LIVE';m.className='badge '+(info.dry?'sim':'live');
+  $('#livewarn').style.display=info.dry?'none':'block';
+  renderSummary();renderOutputs();renderToys();renderLinks();renderKinds();
+}
+function renderSummary(){
+  const box=$('#summary');box.replaceChildren();
+  const c=el('div',{class:'card'},el('h2',{},'Loaded'));
+  c.append(el('div',{},'Source: ',el('span',{class:'mono'},info.source||'(none, defaults)')),el('div',{},'DOF ini folder: ',el('span',{class:'mono'},info.iniDir)),
+    el('div',{},info.romCount+' ROM configs. DOFLinx watches: '+info.processes.join(', ')));
+  box.append(c);
+  const t=el('table');t.append(el('thead',{},el('tr',{},...['ini file','LedWiz #','ROMs','warnings'].map(x=>el('th',{},x)))));
+  const b=el('tbody');for(const f of info.files)b.append(el('tr',{},el('td',{},f.name),el('td',{},f.ledwiz),el('td',{},f.tables),el('td',{title:(f.firstWarnings||[]).join('\n'),class:f.warnings?'err':''},f.warnings)));
+  t.append(b);box.append(el('div',{class:'card'},el('h2',{},'DOF ini files'),t));
+  const t2=el('table');t2.append(el('thead',{},el('tr',{},...['controller','type','outputs / LEDs','LedWiz # (ini column)'].map(x=>el('th',{},x)))));
+  const b2=el('tbody');for(const c of info.controllers)b2.append(el('tr',{},el('td',{},c.name),el('td',{},c.kind),el('td',{},c.kind==='strip'?c.leds+' LEDs ('+(c.strips||[]).join('+')+')':c.outputs),el('td',{},c.ledwiz||'')));
+  t2.append(b2);box.append(el('div',{class:'card'},el('h2',{},'Controllers'),t2));
+}
+
+// ---- outputs
+function renderOutputs(){
+  const box=$('#outputs');box.replaceChildren();
+  for(const c of info.controllers){
+    if(c.kind==='strip')continue;
+    const slider=el('input',{type:'range',min:1,max:255,value:255,id:'sl-'+c.name});
+    const sv=el('span',{class:'mono'},'255');slider.oninput=()=>sv.textContent=slider.value;
+    const from=el('input',{type:'number',value:1,min:1,max:c.outputs,style:'width:64px'}),to=el('input',{type:'number',value:Math.min(c.outputs,c.kind==='pinone'?63:c.outputs),min:1,max:c.outputs,style:'width:64px'}),ms=el('input',{type:'number',value:500,min:50,style:'width:70px'});
+    const grid=el('div',{class:'grid',id:'grid-'+c.name});
+    for(let n=1;n<=c.outputs;n++){
+      const cell=el('div',{class:'cell',id:`o-${c.name}-${n}`,title:(c.ledwiz?`LedWiz ${c.ledwiz} output ${n}`:'output '+n)},el('span',{class:'n'},n),el('span',{class:'v'},''),el('div',{class:'bar'}));
+      cell.onclick=async()=>{const k=c.name+'/'+n,on=!forced.has(k);
+        try{await api('/api/output',{controller:c.name,number:n,value:on?+slider.value:0});on?forced.add(k):forced.delete(k);cell.classList.toggle('forced',on)}catch(e){alert(e.message)}};
+      grid.append(cell);
+    }
+    box.append(el('div',{class:'card'},el('h2',{},`${c.name} `,el('span',{class:'mute'},`(${c.kind}${c.ledwiz?', LedWiz '+c.ledwiz:''}, ${c.outputs} outputs)`)),
+      el('div',{class:'row'},el('label',{},'value'),slider,sv,el('label',{},'walk'),from,'–',to,el('label',{},'ms each'),ms,
+        el('button',{class:'b g',onclick:async()=>{if(!info.dry&&!confirm(`Pulse outputs ${from.value}-${to.value} on ${c.name} in turn?`))return;
+          try{await api('/api/walk',{controller:c.name,from:+from.value,to:+to.value,ms:+ms.value,value:+slider.value})}catch(e){alert(e.message)}}},'Walk'),
+        el('button',{class:'b g',onclick:()=>api('/api/stop',{})},'Stop'),
+        el('button',{class:'b g',onclick:async()=>{await api('/api/release',{});forced.clear();document.querySelectorAll('.cell.forced').forEach(x=>x.classList.remove('forced'))}},'Release all')),
+      grid));
+  }
+  if(!box.children.length)box.append(el('div',{class:'card mute'},'No output controllers. Load a configuration first.'));
+}
+
+// ---- toys
+function colorRow(prefix){
+  const col=el('input',{type:'color',value:load(prefix+'col')||'#ff0000'});col.onchange=()=>save(prefix+'col',col.value);
+  return col;
+}
+const rgbOf=h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
+async function toy(name,pattern,col,extra){
+  const[r,g,b]=rgbOf(col.value);
+  try{await api('/api/toy',{name,pattern,r,g,b,...extra})}catch(e){alert(e.message)}
+}
+function renderToys(){
+  const s=$('#strips'),box=$('#toys');s.replaceChildren();box.replaceChildren();
+  for(const c of info.controllers.filter(c=>c.kind==='strip')){
+    s.append(el('div',{class:'card'},el('h2',{},`${c.name} `,el('span',{class:'mute'},`${c.leds} LEDs, as they should look (colour order undone)`)),el('canvas',{id:'cv-'+c.name,height:Math.max(1,(c.strips||[]).length)*14,width:600})));
+  }
+  for(const t of info.toys){
+    const card=el('div',{class:'card'},el('h2',{},t.name,' ',el('span',{class:'mute'},t.kind+(t.kind==='ledwiz'?' #'+t.number:''))));
+    if(t.kind==='ledwiz'){
+      const d=el('details',{},el('summary',{},`${t.outputs.length} mapped outputs (ini column → output)`),el('div',{class:'mono mute'},t.outputs.map(o=>`${o.n} → ${o.name}`).join('\n')));
+      d.lastChild.style.whiteSpace='pre-wrap';card.append(d);
+    }else if(t.kind==='analog'){
+      const sl=el('input',{type:'range',min:0,max:255,value:255});
+      card.append(el('div',{class:'row'},sl,el('button',{class:'b g',onclick:()=>api('/api/toy',{name:t.name,r:+sl.value})},'Set'),el('button',{class:'b g',onclick:()=>api('/api/toy',{name:t.name,r:0})},'Off'),el('span',{class:'mute'},t.outputs.map(o=>o.name).join(', '))));
+    }else if(t.kind==='rgb'){
+      const col=colorRow('rgb:'+t.name);
+      card.append(el('div',{class:'row'},col,el('button',{class:'b g',onclick:()=>toy(t.name,'',col)},'On'),el('button',{class:'b g',onclick:()=>api('/api/toy',{name:t.name,r:0,g:0,b:0})},'Off'),
+        ...[['Red','#ff0000'],['Green','#00ff00'],['Blue','#0000ff'],['White','#ffffff']].map(([n,v])=>el('button',{class:'b g',onclick:()=>{col.value=v;toy(t.name,'',col)}},n)),
+        el('span',{class:'mute'},t.outputs.map(o=>o.name).join(', '))));
+    }else if(t.kind==='strip'){
+      const col=colorRow('strip:'+t.name),idx=el('input',{type:'number',value:0,min:0,style:'width:80px'}),ms=el('input',{type:'number',value:40,min:15,style:'width:70px'});
+      const p=(label,pat)=>el('button',{class:'b g',onclick:()=>toy(t.name,pat,col,{index:+idx.value})},label);
+      card.append(el('div',{class:'mute'},`${t.width}×${t.height} LEDs on ${t.controller}, first LED ${t.firstLed}, colour order ${t.colorOrder}`),
+        el('div',{class:'row'},col,p('Solid','solid'),p('Red/Green/Blue thirds','bands'),p('Rainbow','rainbow'),p('Gradient','gradient'),p('Off','off')),
+        el('div',{class:'row'},el('label',{},'single LED #'),idx,p('Light','one'),el('label',{},'chase ms/step'),ms,
+          el('button',{class:'b g',onclick:()=>toy(t.name,'chase',col,{ms:+ms.value})},'Chase'),el('button',{class:'b g',onclick:()=>api('/api/stop',{}).then(()=>toy(t.name,'off',col))},'Stop')));
+      card.append(el('div',{class:'mute'},'Patterns follow the toy layout (first LED = top-left of the toy\'s arrangement, so a bottom-up strip lights from its far end). "Red/Green/Blue thirds" must look red, green, blue on the real strip; if not, fix the toy colour order.'));
+    }
+    box.append(card);
+  }
+  if(!info.toys.length)box.append(el('div',{class:'card mute'},'No toys in this configuration.'));
+}
+
+// ---- ROM
+let romTimer;
+async function searchRoms(){
+  const q=$('#rom-q').value,r=await api('/api/roms?q='+encodeURIComponent(q));
+  $('#rom-n').textContent=`${r.roms.length}${r.roms.length>=200?'+':''} of ${r.total}`;
+  const box=$('#rom-list');box.replaceChildren(...r.roms.map(n=>el('span',{class:'chip',onclick:()=>loadRom(n)},n)));
+}
+$('#rom-q').oninput=()=>{clearTimeout(romTimer);romTimer=setTimeout(searchRoms,200)};
+async function loadRom(n){
+  try{const r=await api('/api/rom',{rom:n});$('#rom-cur').textContent=n;$('#rom-msg').textContent=r.found?'':'no ini configuration for this ROM';$('#rom-msg').className='err';fillElements(r.elements)}
+  catch(e){alert(e.message)}
+}
+$('#rom-clear').onclick=async()=>{await api('/api/clear',{});$('#rom-cur').textContent='none';fillElements([])};
+let elements=[];
+function fillElements(list){elements=list;drawElements()}
+function drawElements(){
+  const q=$('#el-q').value.toLowerCase(),b=$('#el-body');b.replaceChildren();
+  for(const e of elements){
+    if(q&&!(e.desc+' '+e.effects.join(' ')).toLowerCase().includes(q))continue;
+    b.append(el('tr',{},el('td',{class:'mono'},e.desc),el('td',{id:'ev-'+e.desc},e.value),el('td',{class:'mono'},e.effects.join(', ')),
+      el('td',{},el('button',{class:'b g',onclick:()=>fire(e.desc,'pulse')},'Pulse'),' ',el('button',{class:'b g',onclick:()=>fire(e.desc,'on')},'On'),' ',el('button',{class:'b g',onclick:()=>fire(e.desc,'off')},'Off'))));
+  }
+}
+$('#el-q').oninput=drawElements;
+async function fire(desc,mode){
+  try{await api('/api/element',{desc,mode,ms:+$('#el-ms').value,value:+$('#el-val').value});setTimeout(async()=>{const r=await api('/api/elements',{});fillElements(r.elements)},120)}catch(e){alert(e.message)}
+}
+document.querySelectorAll('[data-el]').forEach(b=>b.onclick=()=>fire($('#el-desc').value,b.dataset.el));
+
+// ---- DOFLinx
+function renderKinds(){
+  const k=$('#g-kind');if(k.options.length)return;
+  for(const f of info.families)k.append(el('option',{},f));k.onchange=loadTables;loadTables();
+}
+async function loadTables(){
+  const r=await api('/api/tables?kind='+encodeURIComponent($('#g-kind').value)),s=$('#g-table');
+  s.replaceChildren(el('option',{value:''},'(no table: All_Pre/All_Post only)'),...r.tables.map(t=>el('option',{},t)));
+}
+function drawEvents(list){
+  const q=$('#ev-q').value.toLowerCase(),box=$('#events');box.replaceChildren();
+  const names=[...new Set((list||events).map(x=>x.split('|')[0]))];events=list||events;
+  for(const n of names){if(q&&!n.toLowerCase().includes(q))continue;
+    box.append(el('span',{class:'chip',onclick:()=>api('/api/event',{name:n,value:1}).then(()=>setTimeout(()=>api('/api/event',{name:n,value:0}),400))},n));}
+  if(!names.length)box.append(el('span',{class:'mute'},'no events (start a game first)'));
+}
+let events=[];$('#ev-q').oninput=()=>drawEvents();
+$('#g-start').onclick=async()=>{
+  $('#g-msg').textContent='';
+  try{const r=await api('/api/game',{kind:$('#g-kind').value,table:$('#g-table').value});drawEvents(r.events||[]);fillElements(r.elements||[]);$('#g-msg').textContent='started — chips fire the event ON then OFF after 400 ms'}
+  catch(e){$('#g-msg').textContent=e.message;$('#g-msg').className='err'}
+};
+$('#g-stop').onclick=async()=>{await api('/api/game',{stop:'1'});drawEvents([])};
+const HINTS={action:'e.g. FF_DOF E101,300   |   FF_DEV LF,500   |   FF_ROM afm_113b   (several with |)',trigger:'e.g. E,BUMPER01,1   |   S,Play   |   G,12 (as sent by DOFLinxTrigger.dll; needs a simulated game)',command:'e.g. OUTPUT_NOW_TIMER=1010,1500   |   OUTPUT_NOW_COLOUR=1050,1500,Red   |   OUTPUTS_OFF'};
+$('#c-mode').onchange=()=>$('#c-hint').textContent=HINTS[$('#c-mode').value];$('#c-hint').textContent=HINTS.action;
+$('#c-run').onclick=()=>api('/api/linx',{mode:$('#c-mode').value,text:$('#c-text').value}).catch(e=>alert(e.message));
+$('#c-text').onkeydown=e=>{if(e.key==='Enter')$('#c-run').click()};
+function renderLinks(){
+  const b=$('#links');b.replaceChildren();
+  for(const l of info.links){
+    const ok=l.status==='ok';
+    const test=l.kind==='rgb'||l.kind==='button'&&l.colour?`OUTPUT_NOW_COLOUR=${l.addr},800,${l.colour||'White'}`:`OUTPUT_NOW_TIMER=${l.addr},800`;
+    b.append(el('tr',{},el('td',{},l.kind),el('td',{class:'mono'},l.code),el('td',{class:'mono'},`${l.addr} (dev ${l.device}, out ${l.port})`),el('td',{class:ok?'ok':'err'},ok?'ok':l.status),
+      el('td',{},el('button',{class:'b g',disabled:!ok,onclick:()=>api('/api/linx',{mode:'command',text:test})},'Test 0.8 s'))));
+  }
+  if(!info.links.length)b.append(el('tr',{},el('td',{class:'mute',colspan:5},'no LINK_ entries in the DOFLinx configuration')));
+}
+
+// ---- log + live
+function drawLog(){
+  const w=$('#log-warn').checked,box=$('#log');
+  box.replaceChildren(...logAll.filter(l=>!w||l.level==='WARN').map(l=>el('div',{class:l.level},`${l.t} ${l.level.padEnd(5)} ${l.msg}`)));
+  box.scrollTop=box.scrollHeight;
+}
+$('#log-warn').onchange=drawLog;$('#log-clear').onclick=()=>{logAll=[];drawLog()};
+$('#alloff').onclick=async()=>{try{await api('/api/alloff',{});forced.clear();document.querySelectorAll('.cell.forced').forEach(x=>x.classList.remove('forced'));fillElements([]);$('#rom-cur').textContent='none'}catch(e){alert(e.message)}};
+
+function b64(s){const b=atob(s),a=new Uint8Array(b.length);for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a}
+function paint(c){
+  if(c.values){
+    const act=[];
+    c.values.forEach((v,i)=>{const cell=document.getElementById(`o-${c.name}-${i+1}`);if(!cell)return;
+      cell.lastChild.style.height=(v/255*100)+'%';cell.children[1].textContent=v||'';if(v)act.push(`${i+1}=${v}`)});
+    return act.length?c.name.replace('PinOne Controller','PinOne')+': '+act.join(' '):'';
+  }
+  if(c.leds){
+    const cv=document.getElementById('cv-'+c.name);if(!cv)return '';
+    const d=b64(c.leds),meta=info.controllers.find(x=>x.name===c.name),strips=meta&&meta.strips&&meta.strips.length?meta.strips:[d.length/3];
+    const g=cv.getContext('2d'),maxN=Math.max(...strips),w=Math.max(2,Math.floor(cv.width/maxN));
+    g.clearRect(0,0,cv.width,cv.height);let led=0,lit=0;
+    strips.forEach((n,row)=>{for(let i=0;i<n;i++,led++){const o=led*3;if(o+2>=d.length)break;g.fillStyle=`rgb(${d[o]},${d[o+1]},${d[o+2]})`;g.fillRect(i*w,row*14,w-(w>3?1:0),12);if(d[o]|d[o+1]|d[o+2])lit++}});
+    return lit?`${c.name}: ${lit} LEDs lit`:'';
+  }
+  return '';
+}
+async function tick(){
+  try{
+    const r=await api('/api/live?since='+logSeq);
+    if(r.log&&r.log.length){logAll.push(...r.log);if(logAll.length>1500)logAll=logAll.slice(-1000);drawLog()}
+    logSeq=r.seq;
+    if(r.loaded&&!info.loaded)await refreshInfo();
+    if(!r.loaded&&info.loaded){info={loaded:false};render()}
+    if(r.loaded){
+      const parts=(r.controllers||[]).map(paint).filter(Boolean);
+      $('#active').textContent=parts.length?'Active — '+parts.join('   '):'No outputs active';
+      const g=r.game||{};$('#game').textContent=g.kind?`game: ${g.kind} ${g.table||''}`:'';
+    }
+  }catch(e){$('#active').textContent='tester not reachable'}
+  setTimeout(tick,150);
+}
+(async()=>{showTab(load('tab')||'setup');await showFound();await refreshInfo().catch(()=>{});if(info.loaded){if(load('tab')==='setup')showTab('outputs');searchRoms()}tick()})();
+</script>
+</body>
+</html>

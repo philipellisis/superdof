@@ -1,0 +1,5 @@
+# Maps the game id that DOFLinxTrigger.dll reports (G,<id> in the log) to the
+# base name of the .FX / .Linx file to use.  Copy to tables.ini next to DOFLinx.INI.
+# Unknown ids are logged once as: game id N is not mapped to a table file ...
+#
+# 12=BackToTheFuture

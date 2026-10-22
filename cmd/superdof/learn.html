@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SuperDOF Game IDs</title>
+<style>
+:root{--bg:#f4f5f7;--panel:#fff;--ink:#1d2330;--mute:#677086;--line:#d9dde5;--acc:#2563eb;--ok:#16a34a}
+@media (prefers-color-scheme:dark){:root{--bg:#12151c;--panel:#1b2030;--ink:#e6e9f0;--mute:#8d96ab;--line:#2c344a;--acc:#6ea0ff;--ok:#4ade80}}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,Segoe UI,sans-serif;padding:16px;max-width:900px;margin:0 auto}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-bottom:14px}
+h1{font-size:18px}h2{font-size:14px;margin:0 0 8px}
+.mute{color:var(--mute)}.ok{color:var(--ok)}
+table{border-collapse:collapse;width:100%}td,th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left}
+input,select,button{font:inherit;padding:5px 8px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+button{background:var(--acc);color:#fff;border:0;cursor:pointer}
+tr.now td{background:rgba(37,99,235,.12)}
+.big{font-size:32px;font-weight:700}
+</style></head><body>
+<h1>SuperDOF game ids</h1>
+<div class="card">
+  <p style="margin:0">SuperDOF already knows the official Pinball FX table numbers, so most tables are recognised automatically (marked <i>built-in</i>).
+  Only use <b>Assign</b> to override one, or for a new table: it is saved in <code>tables.learned.ini</code> and applied at once.</p>
+</div>
+<div class="card"><h2>Last id received</h2><div><span class="big" id="last">–</span> <span id="lastTable" class="mute"></span></div><div id="status" class="mute"></div></div>
+<div class="card"><h2>Ids seen</h2>
+<table><thead><tr><th>Id</th><th>Table (official name)</th><th>Seen</th><th>DOFLinx file</th><th></th></tr></thead><tbody id="rows"></tbody></table></div>
+<datalist id="tbl"></datalist>
+<script>
+"use strict";
+let data={ids:[],tables:{}},busy=false;
+const el=(t,a={},...k)=>{const e=document.createElement(t);for(const[n,v]of Object.entries(a))e[n]=v;e.append(...k);return e};
+async function refresh(){
+  if(busy||document.activeElement&&document.activeElement.tagName==='INPUT'){ // do not disturb typing
+    if(!busy&&data.ids.length)return;
+  }
+  const r=await fetch('/api/ids');data=await r.json();
+  const kinds=Object.keys(data.tables),all=[...new Set(kinds.flatMap(k=>data.tables[k]))].sort();
+  const dl=document.getElementById('tbl');if(dl.children.length!==all.length){dl.replaceChildren(...all.map(t=>el('option',{value:t})))}
+  const ids=data.ids;
+  document.getElementById('last').textContent=ids.length?ids[0].id:'–';
+  document.getElementById('lastTable').textContent=ids.length&&ids[0].table?'= '+ids[0].table:ids.length?'(not assigned yet)':'';
+  document.getElementById('status').textContent=data.kind?`Game session: ${data.kind} ${data.table||''}`:'No game session yet. Start Pinball FX with DOFLinx enabled.';
+  const body=document.getElementById('rows');
+  const sig=JSON.stringify(ids.map(i=>[i.id,i.table,i.name]));
+  if(body.dataset.sig===sig){ // only update ages
+    [...body.children].forEach((tr,i)=>{if(ids[i])tr.children[2].textContent=age(ids[i].ageMs)});return}
+  body.dataset.sig=sig;body.replaceChildren();
+  ids.forEach((i,n)=>{
+    const inp=el('input',{type:'text',value:i.table||'',placeholder:'table name…',size:28});inp.setAttribute('list','tbl');
+    const btn=el('button',{},i.table?'Change':'Assign');
+    btn.onclick=async()=>{const t=inp.value.trim();if(!t)return;busy=true;
+      const r=await fetch('/api/assign',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:i.id,table:t})});busy=false;
+      if(!r.ok)alert(await r.text());else refresh()};
+    body.append(el('tr',{className:n===0?'now':''},el('td',{},i.id),el('td',{},i.name||'(unknown id)'),el('td',{className:'mute'},age(i.ageMs)),el('td',{},inp,i.builtin?el('span',{className:'mute'},' built-in'):''),el('td',{},btn)));
+  });
+}
+const age=ms=>ms<2000?'now':ms<60000?Math.round(ms/1000)+' s ago':Math.round(ms/60000)+' min ago';
+setInterval(()=>refresh().catch(()=>{}),1000);refresh().catch(()=>{});
+</script></body></html>
