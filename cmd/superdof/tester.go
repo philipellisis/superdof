@@ -629,6 +629,7 @@ type linkRow struct {
 	Status string `json:"status"` // ok | other device | out of range
 	Colour string `json:"colour,omitempty"`
 	Mode   string `json:"mode,omitempty"`
+	Toy    string `json:"toy,omitempty"` // toy name in the ini when the link was derived from it
 }
 
 func (t *tester) info(a *testerApp) map[string]any {
@@ -639,6 +640,12 @@ func (t *tester) info(a *testerApp) map[string]any {
 	}
 	status := func(addr int) string {
 		d, p := linx.Addr(addr)
+		if _, ok := a.ld.ftdi[d]; ok && d != a.device {
+			if p < 1 || p > 8 {
+				return fmt.Sprintf("output %d does not exist on an FTDI chip (1-8)", p)
+			}
+			return "ok"
+		}
 		switch {
 		case d != a.device:
 			return fmt.Sprintf("device %d is not the PinOne (device %d): ignored", d, a.device)
@@ -648,6 +655,14 @@ func (t *tester) info(a *testerApp) map[string]any {
 		return "ok"
 	}
 	rows := []linkRow{}
+	toy := func(key string, addr int) string {
+		for _, d := range a.ld.derived {
+			if d.Addr == addr && (d.Key == key || d.Key == "LINK_"+key) {
+				return d.Toy
+			}
+		}
+		return ""
+	}
 	l := a.runner.Links()
 	add := func(kind string, m map[string][]linx.Link) {
 		var keys []string
@@ -658,7 +673,7 @@ func (t *tester) info(a *testerApp) map[string]any {
 		for _, k := range keys {
 			for _, ln := range m[k] {
 				d, p := linx.Addr(ln.Addr)
-				rows = append(rows, linkRow{Kind: kind, Code: k, Addr: ln.Addr, Device: d, Port: p, Status: status(ln.Addr), Colour: ln.Colour, Mode: ln.Mode})
+				rows = append(rows, linkRow{Kind: kind, Code: k, Addr: ln.Addr, Device: d, Port: p, Status: status(ln.Addr), Colour: ln.Colour, Mode: ln.Mode, Toy: toy(k, ln.Addr)})
 			}
 		}
 	}
@@ -667,7 +682,7 @@ func (t *tester) info(a *testerApp) map[string]any {
 	add("button", l.Button)
 	for _, ln := range l.RGB {
 		d, p := linx.Addr(ln.Addr)
-		rows = append(rows, linkRow{Kind: "rgb", Code: "RGB_OUTPUT", Addr: ln.Addr, Device: d, Port: p, Status: status(ln.Addr)})
+		rows = append(rows, linkRow{Kind: "rgb", Code: "RGB_OUTPUT", Addr: ln.Addr, Device: d, Port: p, Status: status(ln.Addr), Toy: toy("RGB_OUTPUT", ln.Addr)})
 	}
 	k, tb := a.mgr.Current()
 	return map[string]any{

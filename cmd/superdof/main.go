@@ -34,7 +34,7 @@ import (
 	"superdof/internal/serial"
 )
 
-const version = "0.3.0"
+const version = "0.4.0"
 
 type logger struct {
 	mu sync.Mutex
@@ -53,12 +53,24 @@ func (l *logger) Warnf(f string, a ...any) { l.out("WARN", f, a...) }
 type sink struct {
 	cab    *dof.Cabinet
 	device int
+	ftdi   map[int]int // DOFLinx device -> FTDI chip id
 	unit   int
 	log    linx.Logger
 	warned sync.Map
 }
 
 func (s *sink) SetOutput(device, port int, key any, v byte) bool {
+	if id, ok := s.ftdi[device]; ok && device != s.device {
+		o := s.cab.Output(fmt.Sprintf("FT245RBitbangController %d.%02d", id, port))
+		if o == nil {
+			if _, seen := s.warned.LoadOrStore(device*1000+port, true); !seen {
+				s.log.Warnf("output %d on device %d does not exist on FTDI chip %d (1-8)", port, device, id)
+			}
+			return false
+		}
+		o.SetExternal(key, v)
+		return true
+	}
 	if device != s.device {
 		if _, seen := s.warned.LoadOrStore(device, true); !seen {
 			s.log.Warnf("DOFLinx device %d is not the PinOne board (pinOneDevice=%d); outputs on it are ignored", device, s.device)
@@ -106,6 +118,8 @@ type loaded struct {
 	maps     string // tablemappings.xml
 	tableIDs map[string]string
 	source   string
+	derived  []linx.Derived // LINK_ devices built from the ini toy names
+	ftdi     map[int]int   // DOFLinx device -> FTDI chip id
 }
 
 func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
@@ -518,7 +532,13 @@ func cmdInstallVPX(args []string) {
 
 // newLinx builds the DOFLinx layer (runner + game manager) on top of a DOF engine.
 func newLinx(lg linx.Logger, cfg *linx.Config, eng *dof.Engine, ld *loaded) (*linx.Runner, *linx.Manager) {
-	snk := &sink{cab: eng.Cabinet(), device: cfg.Int("PINONE_DEVICE", 1), unit: 1, log: lg}
+	added, ftdiIDs := applyAutoLinks(lg, cfg, eng)
+	ld.derived = added
+	snk := &sink{cab: eng.Cabinet(), device: cfg.Int("PINONE_DEVICE", 1), unit: 1, log: lg, ftdi: map[int]int{}}
+	for i, id := range ftdiIDs {
+		snk.ftdi[cfg.Int("FTDI_DEVICE", 2)+i] = id
+	}
+	ld.ftdi = snk.ftdi
 	colours := linx.DefaultColours()
 	if cf := cfg.Get("COLOUR_FILE"); cf != "" {
 		for _, cand := range []string{cfg.Resolve(cf), filepath.Join(cfg.Dir, filepath.Base(strings.ReplaceAll(cf, "\\", "/"))), filepath.Join(cfg.Dir, "config", "Colours.ini")} {

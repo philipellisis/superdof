@@ -277,6 +277,10 @@ type LedControlFile struct {
 	Tables    []*TableConfig
 	Version   string
 	Warnings  []string
+	// ToyNames holds the names from the comment line under [Config DOF]
+	// ("Rom","Flipper Left",...). Index n is the name of column n (1 based);
+	// index 0 is unused. Empty when the file has no such comment.
+	ToyNames  []string
 	byRomName map[string]*TableConfig
 }
 
@@ -375,7 +379,13 @@ func ParseLedControl(path string, number int) (*LedControlFile, error) {
 	text := strings.ReplaceAll(string(raw), "\r", "\n")
 	for _, l := range strings.Split(text, "\n") {
 		l = strings.TrimSpace(l)
-		if l == "" || strings.HasPrefix(l, "#") {
+		if strings.HasPrefix(l, "#") {
+			if strings.EqualFold(header, "[Config DOF]") && f.ToyNames == nil {
+				f.ToyNames = parseToyNames(l)
+			}
+			continue
+		}
+		if l == "" {
 			continue
 		}
 		if strings.HasPrefix(l, "[") && strings.HasSuffix(l, "]") && len(l) > 2 {
@@ -610,4 +620,19 @@ func LedControlFileNumber(name string) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+// parseToyNames reads the comment line the DOF Config Tool writes under
+// [Config DOF]: # "Rom","Flipper Left","Slingshot Left",... It returns nil for
+// any other comment. The result is indexed by column number (index 0 = "Rom").
+func parseToyNames(line string) []string {
+	s := strings.TrimSpace(strings.TrimLeft(line, "# \t"))
+	if !hasPrefixFold(s, `"rom"`) {
+		return nil
+	}
+	var out []string
+	for _, f := range splitTop(s, ',') {
+		out = append(out, strings.TrimSpace(strings.Trim(strings.TrimSpace(f), `"`)))
+	}
+	return out
 }

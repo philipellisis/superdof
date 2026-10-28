@@ -61,6 +61,23 @@ http://127.0.0.1:8765/ (served by the running superdof, `-ui off` to disable) sh
 with its official name, and lets you override or add one (saved in `tables.learned.ini`; `tables.ini` also works).
 Set `PATH_FX=` to the DOFLinx `FX` folder; if it is missing, superdof searches the usual places.
 
+## No DOFLinx.INI needed
+
+The DOF Config Tool writes the name of every output as a comment under `[Config DOF]` in
+`directoutputconfig11.ini` (and the FTDI file), e.g. `# "Rom","Flipper Left","Slingshot Left",...`. SuperDOF reads
+that line and builds the DOFLinx devices from it: Flipper Left is `LF` on the port where the name sits, bumpers are
+`ML/MC/MR` (middle) and `BL/BC/BR` (back), flashers `FLOL/FLIL/FLCN/FLIR/FLOR`, `Strobe` is `SR`,
+Start/Extra Ball/Coin/Launch/Fire are the `BUT_` buttons, magnasaves `BUT_ML/BUT_MR`, Shaker/Gear/Knocker
+`SH/GR/KN`, and `RGB Flippers` is `RGB_OUTPUT`. RGB toys use the first of their three ports. The layout is whatever
+your file says, so nothing is assumed about the cabinet. The PinOne file (11) is DOFLinx device `PINONE_DEVICE`
+(default 1); FTDI files are devices `FTDI_DEVICE` (default 2) upwards, in file order.
+
+* A `LINK_xx` / `RGB_OUTPUT` in `DOFLinx.INI` or `superdof.json` still wins; superdof warns when it differs from the ini.
+* `AUTO_LINKS=0` turns this off. Names it does not know (e.g. a Fan) are listed in the log, never guessed.
+* The Tester shows each link with the toy name it came from.
+* Addressable LED strips need no `LINK_` lines: FX tables drive them with `FF_DOF E...` effects of the `doflinx`
+  ROM in `directoutputconfig30.ini`, through the strip toys of `cabinet.xml` (which holds the port and LED counts).
+
 ## Tester
 
 `superdof test` opens a local web page (loopback only) that runs the real engine so you can try a

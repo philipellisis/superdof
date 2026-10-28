@@ -329,7 +329,7 @@ function renderLinks(){
   for(const l of info.links){
     const ok=l.status==='ok';
     const test=l.kind==='rgb'||l.kind==='button'&&l.colour?`OUTPUT_NOW_COLOUR=${l.addr},800,${l.colour||'White'}`:`OUTPUT_NOW_TIMER=${l.addr},800`;
-    b.append(el('tr',{},el('td',{},l.kind),el('td',{class:'mono'},l.code),el('td',{class:'mono'},`${l.addr} (dev ${l.device}, out ${l.port})`),el('td',{class:ok?'ok':'err'},ok?'ok':l.status),
+    b.append(el('tr',{},el('td',{},l.kind),el('td',{class:'mono'},l.code,l.toy?el('span',{class:'mute'},` ← ${l.toy}`):''),el('td',{class:'mono'},`${l.addr} (dev ${l.device}, out ${l.port})`),el('td',{class:ok?'ok':'err'},ok?'ok':l.status),
       el('td',{},el('button',{class:'b g',disabled:!ok,onclick:()=>api('/api/linx',{mode:'command',text:test})},'Test 0.8 s'))));
   }
   if(!info.links.length)b.append(el('tr',{},el('td',{class:'mute',colspan:5},'no LINK_ entries in the DOFLinx configuration')));
