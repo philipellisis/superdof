@@ -12,6 +12,9 @@ import (
 // 32 on expansion boards).
 const PinOneOutputs = 63
 
+// PinOneDefaultIntervalMs is the gap between two packets when none is configured.
+const PinOneDefaultIntervalMs = 8
+
 // PinOneController drives a PinOne board over USB HID (current firmware) or
 // CDC serial (legacy firmware). It is the Go counterpart of
 // DirectOutput.Cab.Out.PinOne.PinOne.
@@ -22,6 +25,14 @@ type PinOneController struct {
 	interval time.Duration
 	log      Logger
 	outputs  []*Output
+
+	// refresh resends the complete output state this often even when nothing
+	// changed, so a state the board lost or got wrong never stays (0 = never).
+	refresh time.Duration
+
+	traceMu   sync.Mutex
+	tracePkt  func(string)
+	traceNums map[int]bool // traced output numbers; nil = all
 
 	mu      sync.Mutex
 	state   int // 0 startup, 1 value changed, 2 running
@@ -41,13 +52,17 @@ func NewPinOneController(n int, port string, intervalMs int, log Logger) *PinOne
 		log = nopLogger{}
 	}
 	if intervalMs < 1 {
-		intervalMs = 1
+		// Not configured. One 63 byte HID report takes the V2 firmware about 7 ms to
+		// read, so the DOF default of 1 ms could overflow its receive queue and
+		// lose bytes in the middle of reports (outputs stuck on, wrong state).
+		intervalMs = PinOneDefaultIntervalMs
 	}
 	c := &PinOneController{
 		name:     fmt.Sprintf("PinOne Controller %02d", n),
 		number:   n,
 		port:     port,
 		interval: time.Duration(intervalMs) * time.Millisecond,
+		refresh:  2 * time.Second,
 		log:      log,
 		kick:     make(chan struct{}, 1),
 		stop:     make(chan struct{}),
@@ -58,6 +73,35 @@ func NewPinOneController(n int, port string, intervalMs int, log Logger) *PinOne
 		c.outputs = append(c.outputs, &Output{Name: fmt.Sprintf("%s.%d", c.name, i), Number: i})
 	}
 	return c
+}
+
+// SetRefresh sets how often the full state is resent (0 = never).
+func (c *PinOneController) SetRefresh(d time.Duration) { c.refresh = d }
+
+// SetPacketTrace logs every packet written to the board that contains one of
+// the given output numbers (nil = every packet).
+func (c *PinOneController) SetPacketTrace(nums map[int]bool, fn func(string)) {
+	c.traceMu.Lock()
+	c.tracePkt, c.traceNums = fn, nums
+	c.traceMu.Unlock()
+}
+
+func (c *PinOneController) tracePacket(first int, vals []byte) {
+	c.traceMu.Lock()
+	fn, nums := c.tracePkt, c.traceNums
+	c.traceMu.Unlock()
+	if fn == nil {
+		return
+	}
+	hit := nums == nil
+	for j := range vals {
+		if nums[first+j+1] {
+			hit = true
+		}
+	}
+	if hit {
+		fn(fmt.Sprintf("trace %s packet: outputs %d-%d = %v", c.name, first+1, first+len(vals), vals))
+	}
 }
 
 // Name implements Controller.
@@ -119,6 +163,7 @@ func (c *PinOneController) run() {
 	}
 	lastWrite := time.Now()
 	lastWarn := time.Time{}
+	lastFull := time.Now()
 
 	send := func(vals [PinOneOutputs]byte) error {
 		pfx := byte(200)
@@ -144,6 +189,7 @@ func (c *PinOneController) run() {
 			buf[0] = 0
 			buf[1] = pfx
 			copy(buf[2:], vals[i:lim])
+			c.tracePacket(i, vals[i:lim])
 			if err := tr.Write(buf); err != nil {
 				return err
 			}
@@ -207,7 +253,15 @@ func (c *PinOneController) run() {
 			st = 2
 		}
 		if err == nil && st == 2 {
-			err = send(c.snapshot())
+			snap := c.snapshot()
+			if c.refresh > 0 && time.Since(lastFull) >= c.refresh {
+				// make every bank look changed so the whole state is written again
+				for i := range old {
+					old[i] = ^snap[i]
+				}
+				lastFull = time.Now()
+			}
+			err = send(snap)
 		}
 		if err != nil {
 			c.log.Warnf("%s: update failed: %v; reconnecting", c.name, err)

@@ -29,7 +29,10 @@ Be explicit about what is verified and what is not.
 3. **FX2 table-based memory triggers** use a pointer chain whose semantics are inferred from the
    shipped files (documented in PROTOCOLS.md). It matches the structure of every file but could
    not be confirmed without running Pinball FX2.
-4. **Future Pinball link** (shared-memory handshake with `DOFLinx.vbs`) is not implemented.
+4. **Future Pinball link** is implemented from the encoding in `DOFLinx.vbs` (slot layout, markers, handshake in slot 0)
+   and verified against a simulated game memory that uses that encoding, not against a running Future Pinball. The
+   `DDH_Slots` array is found by scanning the process for the `FF_Init` markers (needs the same privileges as the
+   game). `FF_PUPlayer` calls and the DOFLinx "default mode" fallback are not implemented.
 5. **DOF event duration for `FF_DOF Exxx,-1`.** The docs only say "predefined duration". SuperDOF
    turns the element on, and switches it off again after the longest self terminating duration of
    the ini effects attached to it (stays on if none); `FF_DOF Exxx,0` turns it off.

@@ -34,7 +34,7 @@ import (
 	"superdof/internal/serial"
 )
 
-const version = "0.4.0"
+const version = "0.7.1"
 
 type logger struct {
 	mu sync.Mutex
@@ -88,7 +88,12 @@ func (s *sink) SetOutput(device, port int, key any, v byte) bool {
 	return true
 }
 
+// hasConsole is false when superdof was started without a console window (Startup
+// folder, Explorer); it then logs to a file.
+var hasConsole = true
+
 func main() {
+	hasConsole = attachConsole()
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "convert":
@@ -99,6 +104,21 @@ func main() {
 			return
 		case "test", "tester":
 			cmdTester(os.Args[2:])
+			return
+		case "install-popper":
+			cmdInstallPopper(os.Args[2:])
+			return
+		case "restore-popper":
+			cmdRestorePopper()
+			return
+		case "restore-vpx":
+			cmdRestoreVPX(os.Args[2:])
+			return
+		case "install-fp":
+			cmdInstallFP(os.Args[2:])
+			return
+		case "setup":
+			cmdSetup(os.Args[2:])
 			return
 		case "install-trigger":
 			cmdInstallTrigger(os.Args[2:])
@@ -119,7 +139,7 @@ type loaded struct {
 	tableIDs map[string]string
 	source   string
 	derived  []linx.Derived // LINK_ devices built from the ini toy names
-	ftdi     map[int]int   // DOFLinx device -> FTDI chip id
+	ftdi     map[int]int    // DOFLinx device -> FTDI chip id
 }
 
 func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
@@ -244,6 +264,8 @@ func runService(args []string) {
 		check    = fs.Bool("check", false, "load and validate the configuration, then exit")
 		testOut  = fs.Int("test-outputs", 0, "light PinOne outputs 1..N one after another, then exit")
 		showVer  = fs.Bool("version", false, "print version and exit")
+		debug    = fs.Bool("debug", false, "log every game / front end event and DOFLinx action (same as DEBUG=1)")
+		trace    = fs.String("trace-outputs", "", "log every change of these outputs and what holds them, e.g. 11,12,13 or all (same as TRACE_OUTPUTS=)")
 	)
 	fs.Parse(args)
 	if *showVer {
@@ -251,9 +273,17 @@ func runService(args []string) {
 		return
 	}
 	lg := &logger{w: os.Stderr}
-	if *logFile != "" {
-		if f, err := os.OpenFile(*logFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644); err == nil {
-			lg.w = io.MultiWriter(os.Stderr, f)
+	logPath := *logFile
+	if logPath == "" && !hasConsole {
+		logPath = defaultLogPath()
+	}
+	if logPath != "" {
+		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644); err == nil {
+			if hasConsole {
+				lg.w = io.MultiWriter(os.Stderr, f)
+			} else {
+				lg.w = f // no console: a failing stderr would stop a MultiWriter
+			}
 			defer f.Close()
 		}
 	}
@@ -272,11 +302,18 @@ func runService(args []string) {
 		lg.Infof("config: %s", ld.source)
 	}
 	cfg := ld.lcfg
+	if *debug {
+		cfg.Set("DEBUG", "1")
+	}
+	if *trace != "" {
+		cfg.Set("TRACE_OUTPUTS", *trace)
+	}
 	if *table != "" {
 		cfg.Set("FORCE_TABLE", *table)
 	}
 	ld.dofCfg.DryRun = *dryRun
 	ld.dofCfg.Log = lg
+	ld.dofCfg.PinOneRefreshMs = cfg.Int("PINONE_REFRESH_MS", 0)
 	eng := dof.New(ld.dofCfg)
 	if err := eng.Start(); err != nil {
 		lg.Warnf("DOF engine: %v", err)
@@ -285,9 +322,20 @@ func runService(args []string) {
 	defer eng.Stop()
 
 	runner, mgr := newLinx(lg, cfg, eng, ld)
+	applyOutputTrace(lg, cfg, eng)
 
 	if !*check && !*dryRun && cfg.Bool("AUTO_INSTALL_TRIGGER", true) {
 		installTriggers(cfg.Get("TRIGGER_DLL"), cfg.List("GAME_DIR"), cfg.Dir).log(lg)
+	}
+	if !*check && !*dryRun && cfg.Bool("AUTO_INSTALL_FP", true) {
+		installFuturePinball(lg, append(cfg.List("FP_DIR"), cfg.List("GAME_DIR")...))
+	}
+	if !*check && !*dryRun && cfg.Bool("AUTO_INSTALL_POPPER", true) {
+		go installPopper(lg, cfg.List("POPPER_DIR"), true)
+	}
+	if !*check && !*dryRun && cfg.Bool("AUTO_INSTALL_VPX", true) {
+		// shortcut handling runs PowerShell, which takes a few seconds
+		go installVPXBridge(lg, append(cfg.List("B2S_SERVER_DIR"), cfg.Get("PATH_B2S_SERVER")))
 	}
 
 	if *check {
@@ -342,7 +390,7 @@ func runService(args []string) {
 			}
 		}
 	})
-	br := &linx.Bridge{DOF: eng, Runner: runner, Log: lg, Version: version, RomFor: func(table, rom string) string {
+	br := &linx.Bridge{DOF: eng, Runner: runner, Log: lg, Version: version, Debug: cfg.Bool("DEBUG", false), RomFor: func(table, rom string) string {
 		if rom != "" {
 			return rom
 		}
@@ -508,26 +556,18 @@ func cmdInstallVPX(args []string) {
 		lg.Warnf("%s is not a folder", dir)
 		os.Exit(1)
 	}
-	dst := filepath.Join(dir, "B2SServerDirectOutputPlugin.dll")
-	if fileExists(dst) {
-		bak := dst + ".bak"
-		if !fileExists(bak) {
-			if err := os.Rename(dst, bak); err != nil {
-				lg.Warnf("backup: %v", err)
-				os.Exit(1)
-			}
-			lg.Infof("backed up the existing plugin to %s", bak)
-		}
+	res, err := linx.InstallB2S(bridgeDLL, dir)
+	for _, a := range res.Actions {
+		lg.Infof("%s", a)
 	}
-	if err := os.WriteFile(dst, bridgeDLL, 0o644); err != nil {
+	if err != nil {
 		lg.Warnf("%v", err)
 		os.Exit(1)
 	}
-	lg.Infof("installed %s", dst)
 	if !fileExists(filepath.Join(dir, "B2SServerPluginInterface.dll")) {
 		lg.Warnf("B2SServerPluginInterface.dll was not found in that folder; is it the B2S server folder?")
 	}
-	lg.Infof("DirectOutput.dll in that folder is no longer used and can stay or be removed")
+	lg.Infof("restart the B2S server / Visual Pinball; undo with: superdof restore-vpx")
 }
 
 // newLinx builds the DOFLinx layer (runner + game manager) on top of a DOF engine.

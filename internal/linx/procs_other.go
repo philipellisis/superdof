@@ -48,3 +48,10 @@ func OpenProcessMemory(pid uint32) (*ProcessMemory, error) {
 }
 func (p *ProcessMemory) ReadU32(addr uint32) (uint32, error) { return 0, fmt.Errorf("unsupported") }
 func (p *ProcessMemory) Close()                              {}
+
+func OpenProcessMemoryRW(pid uint32) (*ProcessMemory, error)  { return OpenProcessMemory(pid) }
+func (p *ProcessMemory) ReadAt(addr uint64, buf []byte) error { return fmt.Errorf("unsupported") }
+func (p *ProcessMemory) WriteAt(addr uint64, buf []byte) error {
+	return fmt.Errorf("unsupported")
+}
+func (p *ProcessMemory) Regions(fn func(base, size uint64) bool) {}

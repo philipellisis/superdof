@@ -26,8 +26,18 @@ type triggerGame struct {
 // FX / M / IMP executable (Steam libraries plus extra folders).
 func installTriggers(dllHint string, extraGames []string, hints ...string) triggerReport {
 	var rep triggerReport
+	var embedded bool
 	games := linx.FindGames(extraGames...)
-	rep.Source = linx.FindTriggerDLL(append([]string{dllHint}, hints...)...)
+	// an explicit file wins; otherwise the DLL built into superdof is used, and
+	// only a build without it searches the usual folders
+	switch {
+	case dllHint != "":
+		rep.Source = linx.FindTriggerDLL(dllHint)
+	case len(triggerDLL) > 0:
+		rep.Source, embedded = "built into superdof", true
+	default:
+		rep.Source = linx.FindTriggerDLL(hints...)
+	}
 	if len(games) == 0 {
 		rep.Err = "no Pinball FX / Pinball M / Infected Mushroom Pinball installation found in the Steam libraries"
 		return rep
@@ -40,7 +50,7 @@ func installTriggers(dllHint string, extraGames []string, hints ...string) trigg
 			} else {
 				tg.Status = "missing"
 			}
-		} else if st, err := linx.InstallTrigger(rep.Source, g); err != nil {
+		} else if st, err := install(rep.Source, embedded, g); err != nil {
 			tg.Status = err.Error()
 		} else {
 			tg.Status, tg.OK = st, true
@@ -51,6 +61,13 @@ func installTriggers(dllHint string, extraGames []string, hints ...string) trigg
 		rep.Err = linx.TriggerDLL + " was not found. Put it next to superdof.exe (it is in the DOFLinx download) or pass -dll"
 	}
 	return rep
+}
+
+func install(src string, embedded bool, g linx.GameInstall) (string, error) {
+	if embedded {
+		return linx.InstallTriggerData(triggerDLL, g)
+	}
+	return linx.InstallTrigger(src, g)
 }
 
 func (r triggerReport) log(lg interface {
@@ -93,4 +110,23 @@ func cmdInstallTrigger(args []string) {
 		os.Exit(1)
 	}
 	fmt.Println("Now start the game: Settings > Cabinet > turn cabinet mode on > DOFLinx tab > enable, with superdof running.")
+}
+
+// defaultLogPath is the log file used when superdof runs without a console. The
+// previous log is kept as superdof.log.1.
+func defaultLogPath() string {
+	base := os.Getenv("ProgramData")
+	if base == "" {
+		base = os.TempDir()
+	}
+	dir := filepath.Join(base, "SuperDOF")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		dir = os.TempDir()
+	}
+	p := filepath.Join(dir, "superdof.log")
+	if _, err := os.Stat(p); err == nil {
+		os.Remove(p + ".1")
+		os.Rename(p, p+".1")
+	}
+	return p
 }

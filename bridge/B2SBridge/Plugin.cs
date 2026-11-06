@@ -24,7 +24,7 @@ namespace SuperDOF.B2SBridge
         private Thread _worker;
         private volatile bool _run;
 
-        public string Name { get { return "SuperDOF bridge (PinOne) 0.1"; } }
+        public string Name { get { return "SuperDOF bridge (PinOne) 0.2"; } }
 
         public void PluginInit(string tableFilename, string romName)
         {
@@ -75,10 +75,10 @@ namespace SuperDOF.B2SBridge
                             pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut);
                             pipe.Connect(250);
                             w = new StreamWriter(pipe, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\r\n" };
-                            // the service replies to some messages; drain them so the pipe never blocks
-                            var rp = pipe;
-                            var t = new Thread(() => { try { var r = new StreamReader(rp); while (r.ReadLine() != null) { } } catch { } }) { IsBackground = true };
-                            t.Start();
+                            // The replies of the service (OK / ERR) are deliberately never read: a
+                            // pending read on a synchronous pipe handle blocks every later write on
+                            // it, which stopped all events after INIT. The replies are a few bytes
+                            // and fit in the pipe buffer.
                         }
                         w.WriteLine(line);
                         break;

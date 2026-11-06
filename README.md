@@ -25,6 +25,14 @@ DOFLinxMsg / front end ───────────────────
                     PinOne            Wemos / Teensy strips       FTDI FT245R
 ```
 
+## Running in the background (Windows)
+
+`superdof.exe` is built for the Windows GUI subsystem: started from `shell:startup`, Explorer or a shortcut it opens **no
+window**. With no console it writes its log to `%ProgramData%SuperDOFsuperdof.log` (the previous run is kept as
+`superdof.log.1`; `-log FILE` chooses another file). Started from a command prompt it attaches to that console and
+prints as usual. A prompt does not wait for a program like this, so for `setup`, `devices`, `-check` and other short
+commands use **`superdof-console.exe`** (the same program built as a console application), or `start /wait superdof ...`.
+
 ## Quick start (Windows)
 
 1. Build (Go 1.22+): `powershell ./build.ps1` or `go build -o superdof.exe ./cmd/superdof`
@@ -45,13 +53,38 @@ their executable (the DOFLinx documentation's manual step). SuperDOF does this f
   Pinball FX / M / IMP and copies the DLL next to the `*-Win64-Shipping.exe` (updating it when it differs),
 * or run it yourself: `superdof install-trigger [-dll F] [-game FOLDER]` (the Tester has the same under `/api/trigger`).
 
-The DLL is the unmodified file from the DOFLinx download; it is not bundled in superdof.exe. SuperDOF looks
-for it (in order) at `TRIGGER_DLL`/`-dll`, next to superdof.exe and the config, `C:DOFLinx`, and
-`DownloadsDOFLinx*`. Keep a copy beside superdof.exe so it survives cleaning Downloads. Extra game
-folders can be listed in `GAME_DIR`. Writing into `Program Files` can need administrator rights once.
+The DLL is the unmodified `DOFLinxTrigger.dll` from the DOFLinx 10.03 download (by DDH69), **built into superdof.exe**,
+so nothing needs to be downloaded or placed by hand. `TRIGGER_DLL` / `-dll` use your own copy instead (for a newer
+DOFLinx release). Extra game folders can be listed in `GAME_DIR`. Writing into `Program Files` can need administrator rights once.
 Then start the game, turn cabinet mode on, open the DOFLinx tab and enable it, with superdof running.
 The pipes accept any local signed-in user, so superdof and the game need not both be (or both not be)
 elevated; network clients are refused.
+
+## One command setup
+
+`superdof setup` installs what the games need and finds the folders itself (`-fp` / `-b2s` override):
+
+| game | what is installed |
+|---|---|
+| Pinball FX / M / Infected Mushroom | the embedded `DOFLinxTrigger.dll` next to the game |
+| Future Pinball | the embedded `DOFLinx.vbs` into `<Future Pinball>\Scripts` (an older different file is kept as `.bak`) |
+| Visual Pinball | the embedded B2S bridge plugin in `%ProgramData%SuperDOFB2SPlugin`, plus a `SuperDOF.lnk` shortcut to it in the `Plugins` and `Plugins64` folders of every B2S server found; the `DirectOutput.lnk` shortcuts there are renamed to `DirectOutput.lnk.superdof-off` so DOF and superdof do not both drive the PinOne (`superdof restore-vpx` undoes it) |
+
+The running service does the same at start-up; switch off with `AUTO_INSTALL_TRIGGER=0`, `AUTO_INSTALL_FP=0`, `AUTO_INSTALL_VPX=0`.
+Writing into Program Files can need an administrator shell once. With the bridge installed, VPX feedback only works
+while superdof is running.
+
+**PinUP Popper**: the Popper menu sends DOF events through the COM object `DirectOutput.ComObject` (its script creates
+`PinUPDOF.DOFLink`, which creates `DirectOutput.ComObject`). `setup` (or `superdof install-popper`) registers a
+replacement with the same CLSID and methods that forwards to superdof. It is registered for the current user only (no
+admin) and `superdof restore-popper` removes it so a DirectOutput install is used again. In Popper set `useDOF = true`
+(`PUPMenuScriptSysOptions.txt`) so the menu sends events; the ROM name used is `pinupmenu`.
+
+**Future Pinball** tables that call `LoadExternalScript("DOFLinx.vbs")` and `FF_Init` talk to superdof through the
+game memory (the `DDH_Slots` array of the script): superdof finds it, tells the table which devices your cabinet has
+(the others keep playing their normal sound), then runs the `FF_Dev`, `FF_Flasher`, `FF_Button`, `FF_Colour`,
+`FF_ROM` and `FF_DOF` calls of the table. `FP_ATTEMPT_LINK=0` turns the link off. Tables without DOFLinx support are
+not affected.
 
 ## Game ids (Pinball FX)
 
@@ -77,6 +110,14 @@ your file says, so nothing is assumed about the cabinet. The PinOne file (11) is
 * The Tester shows each link with the toy name it came from.
 * Addressable LED strips need no `LINK_` lines: FX tables drive them with `FF_DOF E...` effects of the `doflinx`
   ROM in `directoutputconfig30.ini`, through the strip toys of `cabinet.xml` (which holds the port and LED counts).
+
+## Troubleshooting outputs
+
+* A new link always starts from silence: a new ROM from VPX / Popper, a new Pinball FX / FX2 / FX3 table or a Future Pinball session switches every output off first, and so does a front end that closes or is killed without saying goodbye.
+* `superdof -debug` logs every event from the games and front ends (bridge messages, DOFLinx actions and commands).
+* `superdof -trace-outputs 11,12,13` (or `all`) logs every change of those outputs with what holds them: the value from the DOF effects and the DOFLinx sources. Same as `DEBUG=1` / `TRACE_OUTPUTS=` in the config. Together they show which event left an output on. With `-trace-outputs` the PinOne packets that carry those outputs are logged as well, so the log shows what was actually sent to the board.
+* PinOne packets are sent at least 8 ms apart unless `pinOneMinCommandIntervalMs` / `PinOneDefaultMinCommandIntervalMs` says otherwise: the V2 firmware needs about 7 ms to read one 63 byte HID report, and faster bursts overflowed its receive queue.
+* The complete output state is resent to the PinOne every 2 s even when nothing changed (`PINONE_REFRESH_MS`, `-1` = never), so an output that the board got wrong or lost cannot stay on for long.
 
 ## Tester
 
@@ -112,8 +153,8 @@ Only two things live outside it, because they have to be loaded *by other progra
 
 | file | why it must stay separate |
 |---|---|
-| `DOFLinxTrigger.dll` | loaded by Pinball FX / Pinball M / IMP itself as their cabinet plugin; the unmodified file from the DOFLinx download is used |
-| `B2SServerDirectOutputPlugin.dll` | loaded by the B2S server for VPX. The bridge is **embedded** in `superdof.exe`; install it with `superdof install-vpx <B2S folder>` |
+| `DOFLinxTrigger.dll` | loaded by Pinball FX / Pinball M / IMP itself as their cabinet plugin; the unmodified DOFLinx file is **embedded** in `superdof.exe` and copied next to the game automatically |
+| `B2SServerDirectOutputPlugin.dll` | loaded by the B2S server for VPX (through a shortcut in its Plugins folders). The bridge is **embedded** in `superdof.exe`; install it with `superdof install-vpx <B2S folder>` |
 
 No `DirectOutput.dll`, `DOFLinx.exe`, `DOFLinxCommon.dll`, BASS, .NET runtime or COM registration is needed.
 

@@ -37,6 +37,15 @@ type Runner struct {
 	unsupp    map[string]bool
 	game      string
 	prevMode  string
+	debug     bool
+
+	heldMu sync.Mutex
+	held   map[heldKey]bool // every output this runner has switched on
+}
+
+type heldKey struct {
+	addr int
+	key  any
 }
 
 type lightAction struct {
@@ -54,7 +63,8 @@ func NewRunner(cfg *Config, d DOF, sink Sink, colours Colours, log Logger) *Runn
 		colours = DefaultColours()
 	}
 	return &Runner{cfg: cfg, dof: d, sink: sink, log: log, colours: colours, links: LoadLinks(cfg),
-		anim: newAnimator(), cmds: NewCommandSet(), btnColour: map[string]string{}, unsupp: map[string]bool{}}
+		anim: newAnimator(), cmds: NewCommandSet(), btnColour: map[string]string{}, unsupp: map[string]bool{},
+		debug: cfg.Bool("DEBUG", false), held: map[heldKey]bool{}}
 }
 
 // Links exposes the parsed LINK_ configuration.
@@ -70,7 +80,11 @@ func (r *Runner) Game() string {
 // Begin activates a command set (All_Pre + game file + All_Post already
 // merged) and runs the [STARTUP] actions of the given files.
 func (r *Runner) Begin(game string, cmds *CommandSet, files []*FXFile) {
-	r.End()
+	// a new link starts from silence: nothing from the previous game stays on
+	r.mu.Lock()
+	r.game = ""
+	r.mu.Unlock()
+	r.AllOff()
 	r.mu.Lock()
 	r.game = game
 	r.cmds = cmds
@@ -151,48 +165,48 @@ func (r *Runner) End() {
 	if !had {
 		return
 	}
+	r.AllOff()
+}
+
+// AllOff stops every animation and switches every output off: the outputs this
+// runner drives and everything the DOF engine holds.
+func (r *Runner) AllOff() {
 	r.anim.cancelAll()
 	r.ReleaseAll()
 	r.dof.Clear()
 }
 
-// ReleaseAll turns off every output this runner may have driven.
+// ReleaseAll turns off every output this runner has switched on, whatever
+// source key it used.
 func (r *Runner) ReleaseAll() {
-	for _, ls := range r.links.Dev {
-		for _, l := range ls {
-			r.set(l.Addr, "dev", 0)
-		}
-	}
-	for code, ls := range r.links.Flasher {
-		for _, l := range ls {
-			r.rgbSet(l.Addr, "fl:"+code, RGB{}, "")
-		}
-	}
-	for code, ls := range r.links.Button {
-		for _, l := range ls {
-			r.rgbSet(l.Addr, "but:"+code, RGB{}, r.links.Order[code])
-		}
-	}
-	for _, l := range r.links.RGB {
-		r.rgbSet(l.Addr, "rgb", RGB{}, "")
-	}
-	for _, p := range r.links.Fixed {
-		r.setFixed(p, false)
+	r.heldMu.Lock()
+	held := r.held
+	r.held = map[heldKey]bool{}
+	r.heldMu.Unlock()
+	for h := range held {
+		d, p := Addr(h.addr)
+		r.sink.SetOutput(d, p, h.key, 0)
 	}
 }
 
 func (r *Runner) set(addr int, key any, v uint8) {
 	d, p := Addr(addr)
+	r.heldMu.Lock()
+	if v == 0 {
+		delete(r.held, heldKey{addr, key})
+	} else {
+		r.held[heldKey{addr, key}] = true
+	}
+	r.heldMu.Unlock()
 	r.sink.SetOutput(d, p, key, v)
 }
 
 func (r *Runner) rgbSet(addr int, key any, c RGB, order string) {
-	d, p := Addr(addr)
 	ch := [3]uint8{c.R, c.G, c.B}
 	o := colourOrder(order)
-	r.sink.SetOutput(d, p, key, ch[o[0]])
-	r.sink.SetOutput(d, p+1, key, ch[o[1]])
-	r.sink.SetOutput(d, p+2, key, ch[o[2]])
+	r.set(addr, key, ch[o[0]])
+	r.set(addr+1, key, ch[o[1]])
+	r.set(addr+2, key, ch[o[2]])
 }
 
 func (r *Runner) setFixed(addr int, on bool) {
@@ -246,6 +260,9 @@ func (r *Runner) resolveColour(name string) RGB {
 
 // Execute runs one action.
 func (r *Runner) Execute(a Action) {
+	if r.debug {
+		r.log.Infof("action %s %s", a.Name, a.Args)
+	}
 	args := splitArgs(a.Args)
 	switch a.Name {
 	case "FF_ROM":

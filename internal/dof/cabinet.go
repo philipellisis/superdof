@@ -60,6 +60,7 @@ type Output struct {
 	ext    map[any]byte
 	extMax byte
 	onChg  func()
+	trace  func(string)
 }
 
 func (o *Output) recalc() byte {
@@ -80,12 +81,42 @@ func (o *Output) Value() byte {
 // SetToy sets the value written by DOF toys.
 func (o *Output) SetToy(v byte) {
 	o.mu.Lock()
+	before := o.recalc()
 	changed := o.toy != v
 	o.toy = v
+	msg := o.traceMsg("DOF effect", before)
 	o.mu.Unlock()
+	o.emit(msg)
 	if changed && o.onChg != nil {
 		o.onChg()
 	}
+}
+
+// SetTrace makes the output log every change of its effective value, with the
+// sources that hold it (a DOF effect value and the DOFLinx keys).
+func (o *Output) SetTrace(fn func(string)) {
+	o.mu.Lock()
+	o.trace = fn
+	o.mu.Unlock()
+}
+
+func (o *Output) emit(msg string) {
+	if msg != "" {
+		o.trace(msg)
+	}
+}
+
+// traceMsg builds the trace text when the effective value changed (o.mu held).
+func (o *Output) traceMsg(src string, before byte) string {
+	if o.trace == nil || o.recalc() == before {
+		return ""
+	}
+	var keys []string
+	for k, v := range o.ext {
+		keys = append(keys, fmt.Sprintf("%v=%d", k, v))
+	}
+	sort.Strings(keys)
+	return fmt.Sprintf("trace %s: %d -> %d by %s (DOF toy value %d, DOFLinx sources [%s])", o.Name, before, o.recalc(), src, o.toy, strings.Join(keys, " "))
 }
 
 // SetExternal sets the value of an external source identified by key.
@@ -108,7 +139,23 @@ func (o *Output) SetExternal(key any, v byte) {
 		}
 	}
 	changed := before != o.recalc()
+	msg := o.traceMsg(fmt.Sprintf("DOFLinx %v", key), before)
 	o.mu.Unlock()
+	o.emit(msg)
+	if changed && o.onChg != nil {
+		o.onChg()
+	}
+}
+
+// clearExternal drops every external source.
+func (o *Output) clearExternal() {
+	o.mu.Lock()
+	before := o.recalc()
+	o.ext, o.extMax = nil, 0
+	changed := before != o.recalc()
+	msg := o.traceMsg("clear", before)
+	o.mu.Unlock()
+	o.emit(msg)
 	if changed && o.onChg != nil {
 		o.onChg()
 	}
@@ -298,6 +345,15 @@ func (c *Cabinet) LedWizEquivalent(n int) *LedWizEquivalent { return c.lwe[n] }
 func (c *Cabinet) Update() {
 	for _, n := range c.toyOrder {
 		c.toys[n].UpdateOutputs()
+	}
+}
+
+// ClearExternal drops the values forced by the DOFLinx layer on every output.
+func (c *Cabinet) ClearExternal() {
+	for _, ctl := range c.Controllers {
+		for _, o := range ctl.Outputs() {
+			o.clearExternal()
+		}
 	}
 }
 

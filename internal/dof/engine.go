@@ -28,8 +28,10 @@ type Config struct {
 	DryRun bool
 	// MinCommandIntervalMs is the minimum time between PinOne USB commands.
 	MinCommandIntervalMs int
-	Options              ConfiguratorOptions
-	Log                  Logger
+	// PinOneRefreshMs resends the full PinOne state this often (0 = 2000 ms, negative = never).
+	PinOneRefreshMs int
+	Options         ConfiguratorOptions
+	Log             Logger
 	// ExtraControllers allows tests to inject controllers instead of PinOne.
 	ExtraControllers []Controller
 }
@@ -134,6 +136,12 @@ func (e *Engine) Start() error {
 }
 
 func (e *Engine) setupPinOne(c *PinOneController) {
+	switch {
+	case e.cfg.PinOneRefreshMs < 0:
+		c.SetRefresh(0)
+	case e.cfg.PinOneRefreshMs > 0:
+		c.SetRefresh(time.Duration(e.cfg.PinOneRefreshMs) * time.Millisecond)
+	}
 	if e.cfg.DryRun {
 		c.Opener = func(string) (pinone.Transport, error) { return &logTransport{log: e.log}, nil }
 	}
@@ -280,7 +288,7 @@ func (e *Engine) LoadRom(rom string, done func(found bool)) {
 	})
 }
 
-// Clear drops the active table (all effect outputs go off).
+// Clear drops the active table and every forced value: all outputs go off.
 func (e *Engine) Clear() {
 	e.Do(func() {
 		e.alarms.Clear()
@@ -288,6 +296,7 @@ func (e *Engine) Clear() {
 			e.table.finish()
 		}
 		e.cab.Reset()
+		e.cab.ClearExternal()
 		e.table = NewTable()
 		e.table.init(e, e.cab)
 		e.cab.Update()

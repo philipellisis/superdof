@@ -190,22 +190,25 @@ func fileHash(p string) (string, error) {
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
-// InstallTrigger copies src next to the game executable. It returns
-// "installed", "updated" or "up to date".
+// InstallTrigger copies the DLL file src next to the game executable. It
+// returns "installed", "updated" or "up to date".
 func InstallTrigger(src string, g GameInstall) (string, error) {
-	dst := filepath.Join(g.Dir, TriggerDLL)
-	status := "installed"
-	if _, err := os.Stat(dst); err == nil {
-		a, e1 := fileHash(src)
-		b, e2 := fileHash(dst)
-		if e1 == nil && e2 == nil && a == b {
-			return "up to date", nil
-		}
-		status = "updated"
-	}
 	in, err := os.ReadFile(src)
 	if err != nil {
 		return "", err
+	}
+	return InstallTriggerData(in, g)
+}
+
+// InstallTriggerData writes the DLL bytes next to the game executable.
+func InstallTriggerData(in []byte, g GameInstall) (string, error) {
+	dst := filepath.Join(g.Dir, TriggerDLL)
+	status := "installed"
+	if old, err := os.ReadFile(dst); err == nil {
+		if bytes.Equal(old, in) {
+			return "up to date", nil
+		}
+		status = "updated"
 	}
 	tmp := dst + ".superdof.tmp"
 	if err := os.WriteFile(tmp, in, 0o644); err != nil {

@@ -97,3 +97,86 @@ func (p *ProcessMemory) ReadU32(addr uint32) (uint32, error) {
 }
 
 func (p *ProcessMemory) Close() { syscall.CloseHandle(p.h) }
+
+var (
+	procWriteProcessMemory = kernel32.NewProc("WriteProcessMemory")
+	procVirtualQueryEx     = kernel32.NewProc("VirtualQueryEx")
+)
+
+// OpenProcessMemoryRW opens pid for reading, writing and querying regions.
+func OpenProcessMemoryRW(pid uint32) (*ProcessMemory, error) {
+	const vmOperation, vmRead, vmWrite, queryInfo = 0x0008, 0x0010, 0x0020, 0x0400
+	h, _, e := procOpenProcess.Call(vmOperation|vmRead|vmWrite|queryInfo, 0, uintptr(pid))
+	if h == 0 {
+		return nil, fmt.Errorf("OpenProcess(%d): %v (is superdof running with the same privileges as the game?)", pid, e)
+	}
+	return &ProcessMemory{h: syscall.Handle(h)}, nil
+}
+
+// ReadAt fills buf from the address space of the process.
+func (p *ProcessMemory) ReadAt(addr uint64, buf []byte) error {
+	if len(buf) == 0 {
+		return nil
+	}
+	var n uintptr
+	r, _, e := procReadProcessMemory.Call(uintptr(p.h), uintptr(addr), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)), uintptr(unsafe.Pointer(&n)))
+	if r == 0 || int(n) != len(buf) {
+		return fmt.Errorf("ReadProcessMemory(0x%X, %d): %v", addr, len(buf), e)
+	}
+	return nil
+}
+
+// WriteAt writes buf into the address space of the process.
+func (p *ProcessMemory) WriteAt(addr uint64, buf []byte) error {
+	if len(buf) == 0 {
+		return nil
+	}
+	var n uintptr
+	r, _, e := procWriteProcessMemory.Call(uintptr(p.h), uintptr(addr), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)), uintptr(unsafe.Pointer(&n)))
+	if r == 0 || int(n) != len(buf) {
+		return fmt.Errorf("WriteProcessMemory(0x%X, %d): %v", addr, len(buf), e)
+	}
+	return nil
+}
+
+type memoryBasicInfo struct {
+	BaseAddress       uintptr
+	AllocationBase    uintptr
+	AllocationProtect uint32
+	PartitionID       uint16
+	_                 uint16
+	RegionSize        uintptr
+	State             uint32
+	Protect           uint32
+	Type              uint32
+	_                 uint32
+}
+
+// Regions calls fn for every committed, readable and writable region below
+// 4 GB (the address range of a 32 bit game) until fn returns false.
+func (p *ProcessMemory) Regions(fn func(base, size uint64) bool) {
+	const (
+		memCommit  = 0x1000
+		pageGuard  = 0x100
+		pageNoAcc  = 0x1
+		writeFlags = 0x04 | 0x08 | 0x40 | 0x80 // RW, WC, ERW, ECW
+	)
+	var addr uint64
+	for addr < 1<<32 {
+		var mi memoryBasicInfo
+		r, _, _ := procVirtualQueryEx.Call(uintptr(p.h), uintptr(addr), uintptr(unsafe.Pointer(&mi)), unsafe.Sizeof(mi))
+		if r == 0 || mi.RegionSize == 0 {
+			return
+		}
+		if mi.State == memCommit && mi.Protect&(pageGuard|pageNoAcc) == 0 && mi.Protect&writeFlags != 0 {
+			if !fn(uint64(mi.BaseAddress), uint64(mi.RegionSize)) {
+				return
+			}
+		}
+		next := uint64(mi.BaseAddress) + uint64(mi.RegionSize)
+		if next <= addr {
+			return
+		}
+		addr = next
+	}
+}

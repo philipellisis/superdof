@@ -35,6 +35,7 @@ func defaultProfiles(cfg *Config) []*Profile {
 			Pre: []string{"All_Pre"}, Post: []string{"All_Post"}, Memory: true},
 		{Kind: "LINX_M", Procs: []string{"PinballM-Win64-Shipping"}, PathKey: "PATH_LINX", Ext: ".Linx",
 			Pre: []string{"All_Pre", "All_Pre_M"}, Post: []string{"All_Post_M", "All_Post"}, Trigger: true},
+		{Kind: "FP", Procs: []string{"Future Pinball"}}, // tables talk through DOFLinx.vbs, see fplink.go
 		{Kind: "LINX_IMP", Procs: []string{"IMPinball", "IMPinball-Win64-Shipping"}, PathKey: "PATH_LINX", Ext: ".Linx",
 			Pre: []string{"All_Pre", "All_Pre_IMP"}, Post: []string{"All_Post_IMP", "All_Post"}, Trigger: true},
 	}
@@ -89,13 +90,13 @@ type Manager struct {
 	tableIDs map[string]string
 	forced   string
 
-	mu        sync.Mutex
-	cur       *activeGame
-	stop      chan struct{}
-	warned    map[string]bool
-	autoDirs  map[string]string
-	seenIDs   []SeenID
-	dirsOK    bool
+	mu       sync.Mutex
+	cur      *activeGame
+	stop     chan struct{}
+	warned   map[string]bool
+	autoDirs map[string]string
+	seenIDs  []SeenID
+	dirsOK   bool
 }
 
 // NewManager creates a manager.
@@ -415,10 +416,31 @@ func (m *Manager) startGame(p *Profile, proc Proc, table string) {
 	m.mu.Lock()
 	m.cur = &activeGame{prof: p, proc: proc}
 	m.mu.Unlock()
+	if p.Kind == "FP" {
+		m.startFP(proc)
+		return
+	}
 	if table == "" && m.forced != "" {
 		table = m.forced
 	}
 	m.applyTable(table)
+}
+
+// startFP begins a Future Pinball session: the tables bring their own
+// commands (FF_ROM, FF_DOF, FF_Dev ...) through DOFLinx.vbs, so there are no
+// command files; the link polls the game memory.
+func (m *Manager) startFP(proc Proc) {
+	m.Runner.Begin("FuturePinball", NewCommandSet(), nil)
+	if !m.Cfg.Bool("FP_ATTEMPT_LINK", true) || proc.PID == 0 {
+		return
+	}
+	end := make(chan struct{})
+	m.mu.Lock()
+	if m.cur != nil {
+		m.cur.memEnd = end
+	}
+	m.mu.Unlock()
+	go FPLink(proc.PID, m.Runner, m.Log, end)
 }
 
 // SelectTable switches the active game to a table file base name.
@@ -697,6 +719,9 @@ func (m *Manager) HandleCommand(line string) (quit bool) {
 		} else {
 			key = strings.ToUpper(cmd)
 		}
+		if m.Runner.debug {
+			m.Log.Infof("command %s %s", key, val)
+		}
 		args := splitArgs(val)
 		switch key {
 		case "QUIT":
@@ -831,13 +856,13 @@ func (m *Manager) Current() (kind, table string) {
 
 // SeenID is a game id reported by the game, with its mapping (if any).
 type SeenID struct {
-	ID    string `json:"id"`
+	ID    string    `json:"id"`
 	Last  time.Time `json:"-"`
-	AgeMs int64  `json:"ageMs"`
-	Table string `json:"table"`
-	Name  string `json:"name"`   // official Pinball FX name when the id is a known table
-	Built bool   `json:"builtin"` // Table comes from the built-in list, not from you
-	Count int    `json:"count"`
+	AgeMs int64     `json:"ageMs"`
+	Table string    `json:"table"`
+	Name  string    `json:"name"`    // official Pinball FX name when the id is a known table
+	Built bool      `json:"builtin"` // Table comes from the built-in list, not from you
+	Count int       `json:"count"`
 }
 
 func (m *Manager) noteID(id string) {

@@ -6,6 +6,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Bridge serves the SuperDOF line protocol used by the B2S Server plugin
@@ -25,6 +26,10 @@ type Bridge struct {
 	RomFor  func(tableFile, rom string) string
 	Log     Logger
 	Version string
+	Debug   bool // log every message
+
+	mu    sync.Mutex
+	owner *int // the connection that loaded the current table
 }
 
 // DOFSender is the DOF engine surface used by the bridge.
@@ -35,12 +40,35 @@ type DOFSender interface {
 
 // Serve handles one client connection until it closes.
 func (b *Bridge) Serve(c io.ReadWriteCloser) {
+	me := new(int)
+	if b.Debug {
+		b.Log.Infof("bridge: client connected")
+	}
+	defer func() {
+		// a client that goes away without FINISH (the front end was closed or
+		// killed) must not leave its outputs on
+		b.mu.Lock()
+		own := b.owner == me
+		if own {
+			b.owner = nil
+		}
+		b.mu.Unlock()
+		if own {
+			b.Log.Infof("bridge: client disconnected without FINISH; all outputs off")
+			b.alloff()
+		} else if b.Debug {
+			b.Log.Infof("bridge: client disconnected")
+		}
+	}()
 	sc := bufio.NewScanner(c)
 	sc.Buffer(make([]byte, 64*1024), 1<<20)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" {
 			continue
+		}
+		if b.Debug {
+			b.Log.Infof("bridge: %s", line)
 		}
 		f := strings.Split(line, "|")
 		switch strings.ToUpper(f[0]) {
@@ -62,9 +90,11 @@ func (b *Bridge) Serve(c io.ReadWriteCloser) {
 				fmt.Fprint(c, "ERR no rom\r\n")
 				continue
 			}
-			if b.Runner != nil {
-				b.Runner.End()
-			}
+			// a new link starts from silence
+			b.alloff()
+			b.mu.Lock()
+			b.owner = me
+			b.mu.Unlock()
 			b.Log.Infof("bridge: table %q rom %q", table, rom)
 			done := make(chan bool, 1)
 			b.DOF.LoadRom(rom, func(ok bool) { done <- ok })
@@ -85,8 +115,22 @@ func (b *Bridge) Serve(c io.ReadWriteCloser) {
 				b.DOF.SendNamed("$"+f[1], v)
 			}
 		case "FINISH":
-			b.DOF.Clear()
+			b.mu.Lock()
+			if b.owner == me {
+				b.owner = nil
+			}
+			b.mu.Unlock()
+			b.alloff()
 			fmt.Fprint(c, "OK\r\n")
 		}
 	}
+}
+
+// alloff switches everything off: the DOFLinx layer and the DOF engine.
+func (b *Bridge) alloff() {
+	if b.Runner != nil {
+		b.Runner.AllOff()
+		return
+	}
+	b.DOF.Clear()
 }

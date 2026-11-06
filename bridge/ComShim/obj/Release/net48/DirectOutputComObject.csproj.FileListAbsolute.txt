@@ -1,0 +1,10 @@
+C:\git\superdof\bridge\ComShim\out\DirectOutputComObject.dll
+C:\git\superdof\bridge\ComShim\out\DirectOutputComObject.pdb
+C:\git\superdof\bridge\ComShim\obj\Release\net48\DirectOutputComObject.csproj.AssemblyReference.cache
+C:\git\superdof\bridge\ComShim\obj\Release\net48\DirectOutputComObject.GeneratedMSBuildEditorConfig.editorconfig
+C:\git\superdof\bridge\ComShim\obj\Release\net48\DirectOutputComObject.AssemblyInfoInputs.cache
+C:\git\superdof\bridge\ComShim\obj\Release\net48\DirectOutputComObject.AssemblyInfo.cs
+C:\git\superdof\bridge\ComShim\obj\Release\net48\DirectOutputComObject.csproj.CoreCompileInputs.cache
+C:\git\superdof\bridge\ComShim\obj\Release\net48\DirectOutputComObject.sourcelink.json
+C:\git\superdof\bridge\ComShim\obj\Release\net48\DirectOutputComObject.dll
+C:\git\superdof\bridge\ComShim\obj\Release\net48\DirectOutputComObject.pdb
