@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need full history + tags to compute the next version
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Compute next version
+        id: ver
+        run: |
+          # Base version declared in source (cmd/superdof/main.go: var version = "X.Y.Z").
+          base=$(sed -nE 's/^var version = "([0-9]+\.[0-9]+\.[0-9]+)".*/\1/p' cmd/superdof/main.go)
+          [ -n "$base" ] || { echo "could not read base version from main.go"; exit 1; }
+
+          # Latest existing release tag, if any.
+          latest=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+          latest=${latest#v}
+
+          if [ -z "$latest" ]; then
+            # First release: bump the patch of the source version.
+            IFS=. read -r ma mi pa <<< "$base"
+            next="$ma.$mi.$((pa + 1))"
+          elif [ "$(printf '%s\n%s\n' "$latest" "$base" | sort -V | tail -n1)" = "$base" ] && [ "$base" != "$latest" ]; then
+            # Source version was raised manually above the last tag: release it as-is.
+            next="$base"
+          else
+            IFS=. read -r ma mi pa <<< "$latest"
+            next="$ma.$mi.$((pa + 1))"
+          fi
+          echo "base=$base latest=${latest:-none} next=$next"
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build Windows executables
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          mkdir -p dist
+          # superdof.exe: GUI-subsystem build (no console window when started from Startup).
+          go build -trimpath -ldflags "-s -w -H=windowsgui -X main.version=$VERSION" -o dist/superdof.exe ./cmd/superdof
+          # superdof-console.exe: plain console build.
+          go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o dist/superdof-console.exe ./cmd/superdof
+          ./dist/superdof-console.exe -version
+
+      - name: Create pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          gh release create "v$VERSION" \
+            dist/superdof.exe \
+            dist/superdof-console.exe \
+            --target "$GITHUB_SHA" \
+            --title "SuperDOF v$VERSION" \
+            --generate-notes \
+            --prerelease

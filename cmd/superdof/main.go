@@ -34,7 +34,10 @@ import (
 	"superdof/internal/serial"
 )
 
-const version = "0.7.1"
+// version is the base version for local builds. CI overrides it at link time
+// (-ldflags "-X main.version=X.Y.Z"). Raising the major/minor here makes the next
+// release on main start from that version; otherwise CI bumps the patch of the last tag.
+var version = "0.7.1"
 
 type logger struct {
 	mu sync.Mutex
