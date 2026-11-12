@@ -147,6 +147,20 @@ func RestoreB2S(dir string) []string {
 	return out
 }
 
+// samePath reports whether a and b name the same file or folder. The text is
+// compared first; if that differs, the file system decides, so a short 8.3 name
+// (C:\Users\RUNNER~1\...) matches the long one a shortcut stores.
 func samePath(a, b string) bool {
-	return strings.EqualFold(strings.TrimRight(filepath.Clean(a), `\/`), strings.TrimRight(filepath.Clean(b), `\/`))
+	if strings.EqualFold(strings.TrimRight(filepath.Clean(a), `\/`), strings.TrimRight(filepath.Clean(b), `\/`)) {
+		return true
+	}
+	sa, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	sb, err := os.Stat(b)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(sa, sb)
 }
