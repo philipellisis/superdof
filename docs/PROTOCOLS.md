@@ -10,7 +10,7 @@ bank; bank 0 = outputs 1-7 … bank 8 = outputs 57-63. Outputs are brightness on
 
 | firmware | transport | framing |
 |---|---|---|
-| current | USB HID, VID `0x39F5` PID `0x9208`, usage page `0xFF00` usage `1` | 64 byte output report: report id `6` + packet, zero padded |
+| current | USB HID, VID `0x39F5`, any PID `0x9200`-`0x92FF` (`0x9208` HID gamepad mode, `0x9209` XInput mode), usage page `0xFF00` usage `1` | 64 byte output report: report id `6` + packet, zero padded |
 | legacy  | USB CDC serial, VID `0x0E8F` PID `0x9207`, 2 000 000 baud 8N1, DTR on | packet written as is |
 
 Minimum interval between packets: 1 ms (`PinOneDefaultMinCommandIntervalMs`). Like DOF the first

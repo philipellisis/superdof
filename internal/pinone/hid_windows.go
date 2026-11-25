@@ -156,7 +156,7 @@ func listHIDPaths() ([]string, error) {
 		at.Size = uint32(unsafe.Sizeof(at))
 		ok, _, _ := procHidGetAttributes.Call(uintptr(h), uintptr(unsafe.Pointer(&at)))
 		match := false
-		if ok != 0 && at.VendorID == HIDVendorID && at.ProductID == HIDProductID {
+		if ok != 0 && at.VendorID == HIDVendorID && IsPinOneProduct(at.ProductID) {
 			var pp uintptr
 			if r, _, _ := procHidGetPreparsed.Call(uintptr(h), uintptr(unsafe.Pointer(&pp))); r != 0 {
 				var caps hidpCaps

@@ -2,8 +2,8 @@
 //
 // Two firmware generations exist, both are supported:
 //
-//   - current firmware: USB HID vendor channel (VID 0x39F5, PID 0x9208,
-//     usage page 0xFF00 / usage 1). Output reports are 64 bytes: report ID 6
+//   - current firmware: USB HID vendor channel (VID 0x39F5, any PID in
+//     0x9200-0x92FF, usage page 0xFF00 / usage 1). Output reports are 64 bytes: report ID 6
 //     followed by the 9 byte protocol packet, zero padded.
 //   - legacy firmware: USB CDC serial port (VID 0x0E8F, PID 0x9207). The 9
 //     byte protocol packet is written directly to the port.
@@ -15,21 +15,58 @@ package pinone
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
 const (
-	HIDVendorID    = 0x39F5
-	HIDProductID   = 0x9208
-	HIDUsagePage   = 0xFF00
-	HIDUsage       = 0x01
-	HIDReportID    = 6
-	HIDReportSize  = 64
-	LegacyVendorID = 0x0E8F
-	LegacyProduct  = 0x9207
-	SerialBaud     = 2000000
-	PacketSize     = 9
+	HIDVendorID = 0x39F5
+	// Product IDs 0x9200-0x92FF under HIDVendorID are reserved for PinOne
+	// boards. The board changes its product ID with its USB mode (0x9208
+	// standard HID gamepad, 0x9209 XInput), but the vendor output channel is
+	// the same in every mode, so any PID in the range is accepted and new
+	// firmware modes work without a superdof update. Same rule as DOF.
+	HIDProductIDMask   = 0xFF00
+	HIDProductIDFamily = 0x9200
+	HIDUsagePage       = 0xFF00
+	HIDUsage           = 0x01
+	HIDReportID        = 6
+	HIDReportSize      = 64
+	LegacyVendorID     = 0x0E8F
+	LegacyProduct      = 0x9207
+	SerialBaud         = 2000000
+	PacketSize         = 9
 )
+
+// IsPinOneProduct reports whether a product ID under HIDVendorID is in the
+// range reserved for PinOne boards.
+func IsPinOneProduct(pid uint16) bool {
+	return pid&HIDProductIDMask == HIDProductIDFamily
+}
+
+// ueventIsPinOne reports whether a Linux hidraw uevent describes a USB HID
+// device with the PinOne vendor ID and a PinOne product ID. The line looks
+// like "HID_ID=0003:000039F5:00009208" (bus:vendor:product, hex).
+func ueventIsPinOne(uevent string) bool {
+	for _, line := range strings.Split(uevent, "\n") {
+		v, ok := strings.CutPrefix(strings.TrimSpace(line), "HID_ID=")
+		if !ok {
+			continue
+		}
+		f := strings.Split(v, ":")
+		if len(f) != 3 {
+			return false
+		}
+		bus, e1 := strconv.ParseUint(f[0], 16, 32)
+		vid, e2 := strconv.ParseUint(f[1], 16, 32)
+		pid, e3 := strconv.ParseUint(f[2], 16, 32)
+		if e1 != nil || e2 != nil || e3 != nil || pid > 0xFFFF {
+			return false
+		}
+		return bus == 3 && vid == HIDVendorID && IsPinOneProduct(uint16(pid))
+	}
+	return false
+}
 
 // Transport sends 9 byte protocol packets to the board.
 type Transport interface {

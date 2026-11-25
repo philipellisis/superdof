@@ -39,11 +39,10 @@ func (d *linuxDev) Write(packet []byte) error {
 // openHID finds the hidraw node exposing the PinOne vendor channel.
 func openHID() (Transport, error) {
 	nodes, _ := filepath.Glob("/sys/class/hidraw/hidraw*")
-	wantID := fmt.Sprintf("HID_ID=0003:%08X:%08X", HIDVendorID, HIDProductID)
 	var lastErr error
 	for _, n := range nodes {
 		uev, err := os.ReadFile(filepath.Join(n, "device", "uevent"))
-		if err != nil || !strings.Contains(strings.ToUpper(string(uev)), wantID) {
+		if err != nil || !ueventIsPinOne(string(uev)) {
 			continue
 		}
 		desc, err := os.ReadFile(filepath.Join(n, "device", "report_descriptor"))
